@@ -2,6 +2,14 @@
 
 本文件记录“拿了桔子跑啊”的主要版本变化。
 
+## 0.6.5 — 2026-08-21
+
+### 修复
+
+- Release 仅上传 DMG、EXE、DEB 与 AppImage 最终安装包
+- 避免 Linux 临时 AppImage 构建目录被当作 Release 附件上传
+- 收紧发布文件通配符，修复 GitHub Release 附件 API 返回 404
+
 ## 0.6.4 — 2026-08-21
 
 ### 调整
