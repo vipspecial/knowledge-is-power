@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "A quiet local-first notes app"
 authors = ["Peter"]
 edition = "2021"
+license = "MIT"
 
 [lib]
 name = "orange_run_notes_lib"
