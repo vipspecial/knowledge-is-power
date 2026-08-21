@@ -118,8 +118,7 @@ npm run build:linux
 
 - 宣传页：修改 `website/` 后推送到 `main`，GitHub Actions 自动部署 Pages。
 - 桌面版本：更新版本号与 `CHANGELOG.md`，推送同名标签，例如 `vX.Y.Z`。
-- 正式更新：工作流自动生成安装包、签名更新包和 `latest.json`。
-- 发布者首次配置更新签名见 [.github/RELEASING.md](./.github/RELEASING.md)，应用用户无需配置。
+- 桌面安装包：GitHub Actions 自动构建并上传到 Releases，当前暂不启用应用内自动更新。
 
 ## Star 趋势
 

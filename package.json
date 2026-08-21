@@ -1,7 +1,7 @@
 {
   "name": "orange-run-notes",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,8 +17,6 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.10.1",
     "@tiptap/extension-highlight": "^3.30.2",
     "@tiptap/extension-placeholder": "^3.30.2",
     "@tiptap/extension-table": "^3.30.2",

@@ -17,7 +17,6 @@ import {
   saveAppSettings,
 } from "./settings";
 import { loadStore, saveStore } from "./storage";
-import { checkForAppUpdate, updaterAvailable } from "./updater";
 import type {
   AppSettings,
   AiApplyPayload,
@@ -102,7 +101,6 @@ interface ResizeState {
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let hydrated = false;
-let updateCheckTimer: ReturnType<typeof setTimeout> | undefined;
 let resizeState: ResizeState | null = null;
 let metadataAiVersion = 0;
 
@@ -605,15 +603,6 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => (toastMessage.value = ""), 2400);
 }
 
-async function checkUpdatesQuietly(): Promise<void> {
-  try {
-    const update = await checkForAppUpdate();
-    if (update) showToast(`发现新版本 ${update.version}，可在“设置 → 关于”中更新`);
-  } catch {
-    // Startup checks stay quiet; the About page shows actionable errors on demand.
-  }
-}
-
 function openSettings(tab: "general" | "ai" | "storage" | "about" = "general"): void {
   settingsInitialTab.value = tab;
   showSettingsDialog.value = true;
@@ -945,9 +934,6 @@ onMounted(async () => {
     saveState.value = "error";
   } finally {
     isLoading.value = false;
-    if (updaterAvailable()) {
-      updateCheckTimer = window.setTimeout(() => void checkUpdatesQuietly(), 3_000);
-    }
   }
 });
 
@@ -959,7 +945,6 @@ onBeforeUnmount(() => {
   document.body.classList.remove("panel-resizing");
   window.clearTimeout(saveTimer);
   window.clearTimeout(toastTimer);
-  window.clearTimeout(updateCheckTimer);
 });
 </script>
 

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { getVersion } from "@tauri-apps/api/app";
 import { onMounted, ref } from "vue";
+import packageInfo from "../../package.json";
 import {
   chooseDocumentDirectory,
   cloneAppSettings,
@@ -7,13 +9,6 @@ import {
   testAiConnection,
 } from "../settings";
 import type { AppSettings, NotesStore } from "../types";
-import {
-  checkForAppUpdate,
-  getCurrentAppVersion,
-  installCheckedUpdate,
-  updaterAvailable,
-  type AppUpdateInfo,
-} from "../updater";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -41,10 +36,6 @@ const directoryMessage = ref("");
 const testState = ref<"idle" | "testing" | "success" | "error">("idle");
 const testMessage = ref("");
 const appVersion = ref("");
-const updateInfo = ref<AppUpdateInfo | null>(null);
-const updateState = ref<"idle" | "checking" | "current" | "available" | "downloading" | "error">("idle");
-const updateMessage = ref("");
-const updateProgress = ref<number | null>(null);
 
 function submit(): void {
   emit("save", cloneAppSettings(draft.value), apiKey.value);
@@ -90,53 +81,10 @@ async function removeApiKey(): Promise<void> {
 
 function selectTab(tab: SettingsTab): void {
   activeTab.value = tab;
-  if (tab === "about" && updateState.value === "idle") void checkUpdate(false);
-}
-
-async function checkUpdate(showCurrentMessage = true): Promise<void> {
-  if (!updaterAvailable()) {
-    updateState.value = "error";
-    updateMessage.value = "请在安装后的桌面应用中检查更新";
-    return;
-  }
-
-  updateState.value = "checking";
-  updateMessage.value = "正在连接 GitHub Releases…";
-  try {
-    updateInfo.value = await checkForAppUpdate();
-    if (updateInfo.value) {
-      updateState.value = "available";
-      updateMessage.value = `发现新版本 ${updateInfo.value.version}`;
-    } else {
-      updateState.value = "current";
-      updateMessage.value = showCurrentMessage ? "当前已是最新版本" : "已是最新版本";
-    }
-  } catch (error) {
-    updateState.value = "error";
-    const message = error instanceof Error ? error.message : String(error);
-    updateMessage.value = `检查失败：${message}`;
-  }
-}
-
-async function installUpdate(): Promise<void> {
-  updateState.value = "downloading";
-  updateProgress.value = 0;
-  updateMessage.value = "正在下载更新…";
-  try {
-    await installCheckedUpdate((percent) => {
-      updateProgress.value = percent;
-      updateMessage.value = percent === 100 ? "安装完成，正在重新启动…" : "正在下载并验证更新…";
-    });
-  } catch (error) {
-    updateState.value = "error";
-    const message = error instanceof Error ? error.message : String(error);
-    updateMessage.value = `更新失败：${message}`;
-  }
 }
 
 onMounted(async () => {
-  appVersion.value = await getCurrentAppVersion();
-  if (activeTab.value === "about") await checkUpdate(false);
+  appVersion.value = "__TAURI_INTERNALS__" in window ? await getVersion() : packageInfo.version;
 });
 </script>
 
@@ -285,26 +233,11 @@ onMounted(async () => {
                 <p>版本 {{ appVersion || '…' }} · Tauri 2 · Rust · Vue 3</p>
               </div>
             </div>
-            <div class="update-card" :class="updateState">
+            <div class="update-card paused">
               <div>
-                <strong>{{ updateInfo ? `可更新至 ${updateInfo.version}` : '应用更新' }}</strong>
-                <p>{{ updateMessage || '从 GitHub Releases 获取正式版本。' }}</p>
+                <strong>版本更新</strong>
+                <p>自动更新暂未开放，请从 GitHub Releases 手动下载安装新版本。</p>
               </div>
-              <button
-                v-if="updateState === 'available'"
-                type="button"
-                @click="installUpdate"
-              >下载并安装</button>
-              <button
-                v-else
-                type="button"
-                :disabled="updateState === 'checking' || updateState === 'downloading'"
-                @click="checkUpdate()"
-              >{{ updateState === 'checking' ? '正在检查…' : updateState === 'downloading' ? '正在更新…' : '检查更新' }}</button>
-              <div v-if="updateState === 'downloading'" class="update-progress">
-                <i :style="{ width: `${updateProgress ?? 18}%` }"></i>
-              </div>
-              <p v-if="updateInfo?.notes" class="update-notes">{{ updateInfo.notes }}</p>
             </div>
             <p class="privacy-note">你的文档默认保存在本机；只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。</p>
           </section>
