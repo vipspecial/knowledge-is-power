@@ -1,0 +1,25 @@
+[package]
+name = "orange-run-notes"
+version = "0.2.0"
+description = "A quiet local-first notes app"
+authors = ["Peter"]
+edition = "2021"
+
+[lib]
+name = "orange_run_notes_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fffaf5" />
+    <meta
+      name="description"
+      content="拿了桔子跑啊是一款以 AI 辅助创作为核心、本地优先的 Markdown 桌面笔记应用。"
+    />
+    <title>拿了桔子跑啊 · AI Markdown 笔记</title>
+    <link rel="icon" href="./assets/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="返回首页">
+        <img src="./assets/logo.svg" alt="" />
+        <span>拿了桔子跑啊</span>
+      </a>
+      <nav aria-label="页面导航">
+        <a href="#ai">AI 能力</a>
+        <a href="#features">主要功能</a>
+        <a href="#privacy">本地与隐私</a>
+        <a href="#releases">版本历史</a>
+      </nav>
+      <a class="header-button" href="https://github.com/__REPOSITORY__/releases/latest">下载</a>
+    </header>
+
+    <main id="top">
+      <section class="hero section-shell">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span>AI 驱动 · Markdown · 本地优先</p>
+          <h1>把想法写下来，<br /><em>让 AI 帮你跑起来。</em></h1>
+          <p class="hero-description">
+            写作、整理、提问和改稿都在一处完成。文档保存在本地，AI 只围绕当前文章工作。
+          </p>
+          <p class="name-note">
+            名字来自范伟电影台词里对 “Knowledge is power” 的趣味谐音：拿了桔子跑啊。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-action" href="https://github.com/__REPOSITORY__/releases/latest">下载桌面版</a>
+            <a class="secondary-action" href="#ai">看看 AI 能做什么</a>
+          </div>
+          <ul class="hero-meta" aria-label="产品特性">
+            <li>macOS</li>
+            <li>Windows</li>
+            <li>Linux</li>
+            <li>真实 Markdown 文件</li>
+          </ul>
+        </div>
+
+        <div class="app-preview" aria-label="应用界面示意图">
+          <div class="window-bar"><i></i><i></i><i></i><span>拿了桔子跑啊</span></div>
+          <div class="preview-layout">
+            <aside class="preview-libraries">
+              <img src="./assets/logo.svg" alt="" />
+              <span class="active-dot"></span><span></span><span></span><span></span>
+            </aside>
+            <aside class="preview-documents">
+              <strong>内容计划</strong>
+              <button>＋ 新建文档</button>
+              <div class="preview-document active"><b>产品发布文章</b><small>完善开头与价值说明</small></div>
+              <div class="preview-document"><b>用户访谈</b><small>整理关键反馈</small></div>
+              <div class="preview-document"><b>灵感清单</b><small>记录新的想法</small></div>
+            </aside>
+            <article class="preview-editor">
+              <div class="editor-badge">AI 正在续写</div>
+              <h2>让知识真正流动起来</h2>
+              <p>记录只是开始。一个好用的知识工具，还应该帮助你梳理思路、发现遗漏，并把想法变成清晰的表达。</p>
+              <div class="text-line wide"></div><div class="text-line"></div><div class="text-line short"></div>
+              <div class="ai-result"><span>✦</span><p><b>AI 建议</b><br />补充一个真实使用场景，会让这一段更有说服力。</p></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="ai" class="section-shell content-section">
+        <div class="section-heading">
+          <p class="eyebrow"><span></span>AI 在需要的地方出现</p>
+          <h2>不是一个万能聊天框，<br />而是一组贴近写作的工具。</h2>
+        </div>
+        <div class="ai-grid">
+          <article class="feature-card featured">
+            <span>01</span><h3>从零开始写</h3><p>根据主题生成文章、大纲、会议纪要、社交内容或头脑风暴。</p>
+          </article>
+          <article class="feature-card">
+            <span>02</span><h3>选中文字就能改</h3><p>润色、精简、扩写、翻译或解释，只处理当前选区。</p>
+          </article>
+          <article class="feature-card">
+            <span>03</span><h3>围绕文章继续思考</h3><p>续写、总结、校对、提取行动项，并发现内容缺口。</p>
+          </article>
+          <article class="feature-card">
+            <span>04</span><h3>自选模型服务</h3><p>配置 API、模型与协议，支持 OpenAI-compatible 服务和本地模型。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="features" class="warm-section">
+        <div class="section-shell content-section">
+          <div class="section-heading compact">
+            <p class="eyebrow"><span></span>写作与知识管理</p>
+            <h2>功能完整，界面保持简单。</h2>
+          </div>
+          <div class="capability-grid">
+            <article><b>多知识库</b><p>把工作、学习和项目资料分开管理。</p></article>
+            <article><b>父子文档</b><p>用清晰层级组织长内容和复杂项目。</p></article>
+            <article><b>Markdown</b><p>编辑、分栏、预览，并支持双向同步滚动。</p></article>
+            <article><b>回收站</b><p>误删可以恢复，清理时也足够明确。</p></article>
+            <article><b>自由布局</b><p>侧栏可折叠，重要内容获得更多空间。</p></article>
+            <article><b>搜索与标签</b><p>快速找到散落在不同文档中的信息。</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section id="privacy" class="section-shell privacy-section">
+        <div>
+          <p class="eyebrow"><span></span>本地优先</p>
+          <h2>你的文档，始终属于你。</h2>
+          <p>每篇笔记都是指定目录中的真实 Markdown 文件，可以自行备份、同步，也能用其他编辑器打开。</p>
+        </div>
+        <ul>
+          <li><span>✓</span><div><b>AI 默认关闭</b><small>只有主动调用时才发送内容</small></div></li>
+          <li><span>✓</span><div><b>文档上下文隔离</b><small>AI 不会自动读取其他文章</small></div></li>
+          <li><span>✓</span><div><b>存储目录可控</b><small>由你决定文档放在哪里</small></div></li>
+        </ul>
+      </section>
+
+      <section class="download-section">
+        <div class="section-shell download-card">
+          <img src="./assets/logo.svg" alt="" />
+          <div><p>准备好开始了吗？</p><h2>拿了桔子跑啊</h2><small>让知识不只被收藏，更能马上用起来。</small></div>
+          <a href="https://github.com/__REPOSITORY__/releases/latest">下载最新版本</a>
+        </div>
+      </section>
+
+      <section id="releases" class="section-shell content-section releases-section">
+        <div class="section-heading compact">
+          <p class="eyebrow"><span></span>版本历史</p>
+          <h2>持续把写作体验做得更顺手。</h2>
+        </div>
+        <div class="release-list">
+          <article>
+            <div><strong>v0.2.0</strong><time datetime="2026-08-21">2026-08-21</time></div>
+            <p>新增多知识库、回收站、场景化 AI、流式输出、可调布局、橘子品牌和多平台打包。</p>
+          </article>
+          <article>
+            <div><strong>v0.1.0</strong><time datetime="2026-08-18">2026-08-18</time></div>
+            <p>首个可用版本：本地 Markdown 编辑、实时预览、自动保存与基础桌面打包。</p>
+          </article>
+        </div>
+        <a class="release-link" href="https://github.com/__REPOSITORY__/blob/main/CHANGELOG.md">查看完整更新记录 →</a>
+      </section>
+    </main>
+
+    <footer class="site-footer section-shell">
+      <div class="brand"><img src="./assets/logo.svg" alt="" /><span>拿了桔子跑啊</span></div>
+      <p>名字来自 “Knowledge is power” 的趣味谐音——让知识随手带走，马上用起来。</p>
+      <a href="https://github.com/__REPOSITORY__">GitHub</a>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,83 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { AiSettings, AppSettings, NotesStore, SettingsView } from "./types";
+
+const settingsStorageKey = "mojian-settings";
+
+export const defaultSettings: AppSettings = {
+  general: {
+    autoSaveDelayMs: 450,
+    defaultEditorMode: "split",
+  },
+  ai: {
+    enabled: false,
+    baseUrl: "https://api.openai.com/v1",
+    protocol: "chatCompletions",
+    model: "gpt-5.6",
+    temperature: 0.3,
+    maxContextChars: 30000,
+  },
+  documentDirectory: "",
+};
+
+export function cloneAppSettings(settings: AppSettings): AppSettings {
+  return {
+    general: { ...settings.general },
+    ai: { ...settings.ai },
+    documentDirectory: settings.documentDirectory,
+  };
+}
+
+function isRunningInTauri(): boolean {
+  return "__TAURI_INTERNALS__" in window;
+}
+
+function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+  return {
+    general: { ...defaultSettings.general, ...settings.general },
+    ai: { ...defaultSettings.ai, ...settings.ai },
+    documentDirectory: settings.documentDirectory ?? "",
+  };
+}
+
+export async function loadAppSettings(): Promise<SettingsView> {
+  if (isRunningInTauri()) return invoke<SettingsView>("load_settings");
+  const stored = localStorage.getItem(settingsStorageKey);
+  return {
+    settings: normalizeSettings(stored ? JSON.parse(stored) : {}),
+    hasApiKey: false,
+  };
+}
+
+export async function saveAppSettings(
+  settings: AppSettings,
+  apiKey?: string,
+): Promise<SettingsView> {
+  if (isRunningInTauri()) {
+    return invoke<SettingsView>("save_settings", {
+      settings,
+      apiKey: apiKey?.trim() || null,
+    });
+  }
+  localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+  return { settings, hasApiKey: Boolean(apiKey) };
+}
+
+export async function clearApiKey(): Promise<void> {
+  if (isRunningInTauri()) await invoke("clear_ai_api_key");
+}
+
+export async function chooseDocumentDirectory(store: NotesStore): Promise<string | null> {
+  if (!isRunningInTauri()) return null;
+  return invoke<string | null>("choose_document_directory", { store });
+}
+
+export async function testAiConnection(
+  settings: AiSettings,
+  apiKey?: string,
+): Promise<string> {
+  if (!isRunningInTauri()) throw new Error("请在桌面应用中测试 AI 连接");
+  return invoke<string>("test_ai_connection", {
+    settings,
+    apiKey: apiKey?.trim() || null,
+  });
+}

@@ -1,0 +1,1537 @@
+<script setup lang="ts">
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+import { invoke } from "@tauri-apps/api/core";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { createDocumentAiRequest, streamAi } from "./ai";
+import AiPanel from "./components/AiPanel.vue";
+import AiWritingDialog from "./components/AiWritingDialog.vue";
+import AppContextMenu from "./components/AppContextMenu.vue";
+import KnowledgeRail from "./components/KnowledgeRail.vue";
+import NoteListPane from "./components/NoteListPane.vue";
+import SettingsDialog from "./components/SettingsDialog.vue";
+import TrashPane from "./components/TrashPane.vue";
+import {
+  cloneAppSettings,
+  defaultSettings,
+  loadAppSettings,
+  saveAppSettings,
+} from "./settings";
+import { loadStore, saveStore } from "./storage";
+import type {
+  AppSettings,
+  AiOperation,
+  EditorMode,
+  KnowledgeBase,
+  Note,
+  NoteListMode,
+  NotesStore,
+  SaveState,
+} from "./types";
+
+interface ImportedMarkdown {
+  title: string;
+  content: string;
+}
+
+const notes = ref<Note[]>([]);
+const knowledgeBases = ref<KnowledgeBase[]>([]);
+const selectedKnowledgeBaseId = ref<string | null>(null);
+const selectedId = ref<string | null>(null);
+const searchQuery = ref("");
+const isLoading = ref(true);
+const saveState = ref<SaveState>("idle");
+const editorMode = ref<EditorMode>("split");
+const errorMessage = ref("");
+const toastMessage = ref("");
+const showDeleteDialog = ref(false);
+const trashDeleteTarget = ref<"all" | string | null>(null);
+const showSettingsDialog = ref(false);
+const settingsInitialTab = ref<"general" | "ai" | "storage" | "about">("general");
+const savingSettings = ref(false);
+const settings = ref<AppSettings>(cloneAppSettings(defaultSettings));
+const hasApiKey = ref(false);
+const aiPanelOpen = ref(false);
+const showAiWritingDialog = ref(false);
+const sidebarCollapsed = ref(localStorage.getItem("orange-run-sidebar-collapsed") === "true");
+const libraryRailCollapsed = ref(localStorage.getItem("orange-run-library-collapsed") === "true");
+const activeNavigation = ref<"library" | "trash">("library");
+const noteListMode = ref<NoteListMode>(localStorage.getItem("orange-run-note-list-mode") === "outline" ? "outline" : "cards");
+const collapsedNoteIds = ref<Set<string>>(new Set());
+const documentMenuOpen = ref(false);
+const formatMenuOpen = ref(false);
+const editorAiMenuOpen = ref(false);
+const selectionAiMenuOpen = ref(false);
+const selectedText = ref("");
+const selectionRange = ref({ start: 0, end: 0 });
+const knowledgeBaseDialog = ref<"create" | "rename" | "delete" | null>(null);
+const knowledgeBaseName = ref("");
+const titleInput = ref<HTMLInputElement | null>(null);
+const contentInput = ref<HTMLTextAreaElement | null>(null);
+const previewInput = ref<HTMLElement | null>(null);
+const writingAreaInput = ref<HTMLElement | null>(null);
+const sidebarWidth = ref(clamp(readStoredNumber("orange-run-sidebar-width-v3", 264), 220, 380));
+const aiPanelWidth = ref(clamp(readStoredNumber("orange-run-ai-panel-width-v2", 330), 300, 480));
+const editorSplitPercent = ref(clamp(readStoredNumber("orange-run-editor-split-v2", 50), 30, 70));
+const contextualAiBusy = ref<AiOperation | null>(null);
+const contextualAiOutput = ref("");
+const contextualAiError = ref("");
+const contextualAiLabel = ref("");
+const contextualAiTarget = ref<"selection" | "append" | "document">("selection");
+const contextualAiSourceDocumentId = ref("");
+const contextualAiRange = ref({ start: 0, end: 0 });
+const metadataAiBusy = ref<"title" | "tags" | null>(null);
+const contextMenu = ref<ContextMenuState | null>(null);
+
+type ResizeTarget = "sidebar" | "ai" | "editorSplit";
+type ContextMenuKind = "knowledgeBase" | "note" | "trash";
+
+interface ContextMenuState {
+  kind: ContextMenuKind;
+  id: string;
+  x: number;
+  y: number;
+}
+
+interface ContextMenuItem {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  separatorBefore?: boolean;
+}
+
+interface ResizeState {
+  target: ResizeTarget;
+  startX: number;
+  startValue: number;
+  splitLeft: number;
+  splitWidth: number;
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let hydrated = false;
+let scrollSyncOwner: "editor" | "preview" | null = null;
+let scrollSyncTimer: ReturnType<typeof setTimeout> | undefined;
+let resizeState: ResizeState | null = null;
+let contextualAiVersion = 0;
+let metadataAiVersion = 0;
+
+const layoutStyle = computed(() => ({
+  "--sidebar-width": `${sidebarWidth.value}px`,
+  "--ai-width": `${aiPanelWidth.value}px`,
+}));
+
+function toggleSidebar(): void {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem("orange-run-sidebar-collapsed", String(sidebarCollapsed.value));
+}
+
+function toggleLibraryRail(): void {
+  libraryRailCollapsed.value = !libraryRailCollapsed.value;
+  localStorage.setItem("orange-run-library-collapsed", String(libraryRailCollapsed.value));
+}
+
+function openTrash(): void {
+  activeNavigation.value = "trash";
+  sidebarCollapsed.value = false;
+  aiPanelOpen.value = false;
+  selectedId.value = null;
+  searchQuery.value = "";
+  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+}
+
+function closeTrash(): void {
+  const baseId = selectedKnowledgeBaseId.value ?? knowledgeBases.value[0]?.id;
+  if (baseId) selectKnowledgeBase(baseId);
+}
+
+function setNoteListMode(mode: NoteListMode): void {
+  noteListMode.value = mode;
+  localStorage.setItem("orange-run-note-list-mode", mode);
+}
+
+function toggleNoteBranch(id: string): void {
+  const next = new Set(collapsedNoteIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  collapsedNoteIds.value = next;
+}
+
+function closeMenus(): void {
+  documentMenuOpen.value = false;
+  formatMenuOpen.value = false;
+  editorAiMenuOpen.value = false;
+  selectionAiMenuOpen.value = false;
+  contextMenu.value = null;
+}
+
+function openContextMenu(kind: ContextMenuKind, id: string, event: MouseEvent): void {
+  closeMenus();
+  if (kind === "note") selectNote(id);
+
+  const menuWidth = 184;
+  const estimatedHeight = kind === "note" ? 214 : kind === "knowledgeBase" ? 154 : 78;
+  contextMenu.value = {
+    kind,
+    id,
+    x: clamp(event.clientX, 8, Math.max(8, window.innerWidth - menuWidth - 8)),
+    y: clamp(event.clientY, 8, Math.max(8, window.innerHeight - estimatedHeight - 8)),
+  };
+}
+
+function openKnowledgeBaseContextMenu(id: string, event: MouseEvent): void {
+  openContextMenu("knowledgeBase", id, event);
+}
+
+function openNoteContextMenu(id: string, event: MouseEvent): void {
+  openContextMenu("note", id, event);
+}
+
+function openTrashContextMenu(id: string, event: MouseEvent): void {
+  openContextMenu("trash", id, event);
+}
+
+/** Keep native editing commands only where copy, paste or link actions are useful. */
+function handleAppContextMenu(event: MouseEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  const editable = target?.closest("input, textarea, [contenteditable='true']");
+  const preview = target?.closest(".markdown-preview");
+  const selectedPreviewText = preview && window.getSelection()?.toString().trim();
+  const previewLink = preview && target?.closest("a");
+
+  closeMenus();
+  if (!editable && !selectedPreviewText && !previewLink) event.preventDefault();
+}
+
+function toggleMenu(menu: "document" | "format" | "editorAi" | "selectionAi"): void {
+  const next = menu === "document"
+      ? !documentMenuOpen.value
+      : menu === "format"
+        ? !formatMenuOpen.value
+        : menu === "editorAi"
+          ? !editorAiMenuOpen.value
+          : !selectionAiMenuOpen.value;
+  closeMenus();
+  if (menu === "document") documentMenuOpen.value = next;
+  else if (menu === "format") formatMenuOpen.value = next;
+  else if (menu === "editorAi") editorAiMenuOpen.value = next;
+  else selectionAiMenuOpen.value = next;
+}
+
+const writingAreaStyle = computed(() => ({
+  "--editor-split": `${editorSplitPercent.value}%`,
+}));
+
+function readStoredNumber(key: string, fallback: number): number {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function maximumSidebarWidth(): number {
+  const reserved = aiPanelOpen.value && window.innerWidth > 1280
+    ? aiPanelWidth.value + 700
+    : 700;
+  return Math.max(220, Math.min(380, window.innerWidth - reserved));
+}
+
+function maximumAiPanelWidth(): number {
+  const reserved = window.innerWidth > 1280 ? sidebarWidth.value + 700 : 300;
+  return Math.max(300, Math.min(480, window.innerWidth - reserved));
+}
+
+function persistPanelWidths(): void {
+  localStorage.setItem("orange-run-sidebar-width-v3", String(Math.round(sidebarWidth.value)));
+  localStorage.setItem("orange-run-ai-panel-width-v2", String(Math.round(aiPanelWidth.value)));
+  localStorage.setItem("orange-run-editor-split-v2", String(Math.round(editorSplitPercent.value)));
+}
+
+function startPanelResize(target: ResizeTarget, event: PointerEvent): void {
+  event.preventDefault();
+  const splitRect = writingAreaInput.value?.getBoundingClientRect();
+  resizeState = {
+    target,
+    startX: event.clientX,
+    startValue: target === "sidebar"
+      ? sidebarWidth.value
+      : target === "ai"
+        ? aiPanelWidth.value
+        : editorSplitPercent.value,
+    splitLeft: splitRect?.left ?? 0,
+    splitWidth: splitRect?.width ?? 1,
+  };
+  document.body.classList.add("panel-resizing");
+  window.addEventListener("pointermove", handlePanelResize);
+  window.addEventListener("pointerup", stopPanelResize, { once: true });
+}
+
+function handlePanelResize(event: PointerEvent): void {
+  if (!resizeState) return;
+  if (resizeState.target === "sidebar") {
+    sidebarWidth.value = clamp(
+      resizeState.startValue + event.clientX - resizeState.startX,
+      220,
+      maximumSidebarWidth(),
+    );
+  } else if (resizeState.target === "ai") {
+    aiPanelWidth.value = clamp(
+      resizeState.startValue - (event.clientX - resizeState.startX),
+      300,
+      maximumAiPanelWidth(),
+    );
+  } else {
+    editorSplitPercent.value = clamp(
+      ((event.clientX - resizeState.splitLeft) / resizeState.splitWidth) * 100,
+      30,
+      70,
+    );
+  }
+}
+
+function stopPanelResize(): void {
+  resizeState = null;
+  document.body.classList.remove("panel-resizing");
+  window.removeEventListener("pointermove", handlePanelResize);
+  persistPanelWidths();
+}
+
+function nudgePanel(target: ResizeTarget, amount: number): void {
+  if (target === "sidebar") {
+    sidebarWidth.value = clamp(sidebarWidth.value + amount, 220, maximumSidebarWidth());
+  } else if (target === "ai") {
+    aiPanelWidth.value = clamp(aiPanelWidth.value + amount, 300, maximumAiPanelWidth());
+  } else {
+    editorSplitPercent.value = clamp(editorSplitPercent.value + amount, 30, 70);
+  }
+  persistPanelWidths();
+}
+
+function fitPanelsToWindow(): void {
+  sidebarWidth.value = clamp(sidebarWidth.value, 220, maximumSidebarWidth());
+  aiPanelWidth.value = clamp(aiPanelWidth.value, 300, maximumAiPanelWidth());
+}
+
+const selectedKnowledgeBase = computed(() =>
+  knowledgeBases.value.find((base) => base.id === selectedKnowledgeBaseId.value),
+);
+
+const selectedNote = computed(() =>
+  notes.value.find((note) => note.id === selectedId.value && !note.deletedAt),
+);
+
+const contextMenuItems = computed<ContextMenuItem[]>(() => {
+  const menu = contextMenu.value;
+  if (!menu) return [];
+  if (menu.kind === "knowledgeBase") {
+    return [
+      { id: "open", label: "打开知识库", icon: "›" },
+      { id: "newNote", label: "新建文档", icon: "+" },
+      { id: "rename", label: "重命名", icon: "✎", separatorBefore: true },
+      {
+        id: "delete",
+        label: "删除知识库",
+        icon: "×",
+        danger: true,
+        disabled: knowledgeBases.value.length <= 1,
+      },
+    ];
+  }
+  if (menu.kind === "trash") {
+    return [
+      { id: "restore", label: "恢复文档", icon: "↶" },
+      { id: "delete", label: "永久删除", icon: "×", danger: true, separatorBefore: true },
+    ];
+  }
+
+  const note = notes.value.find((item) => item.id === menu.id);
+  return [
+    { id: "open", label: "打开文档", icon: "›" },
+    { id: "newChild", label: "新建子文档", icon: "+" },
+    { id: "pin", label: note?.pinned ? "取消置顶" : "置顶文档", icon: "◆" },
+    { id: "duplicate", label: "创建副本", icon: "⧉" },
+    { id: "export", label: "导出 Markdown", icon: "↥", separatorBefore: true },
+    { id: "trash", label: "移到回收站", icon: "×", danger: true, separatorBefore: true },
+  ];
+});
+
+const storeSnapshot = computed<NotesStore>(() => ({
+  knowledgeBases: knowledgeBases.value,
+  notes: notes.value,
+}));
+
+const sortedNotes = computed(() =>
+  notes.value
+    .filter((note) => note.knowledgeBaseId === selectedKnowledgeBaseId.value && !note.deletedAt)
+    .sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    }),
+);
+
+const trashedNotes = computed(() =>
+  notes.value
+    .filter((note) => Boolean(note.deletedAt))
+    .sort((a, b) => new Date(b.deletedAt ?? 0).getTime() - new Date(a.deletedAt ?? 0).getTime()),
+);
+
+const characterCount = computed(() => selectedNote.value?.content.trim().length ?? 0);
+const shortcutPrefix = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+
+const renderedMarkdown = computed(() => {
+  const source = selectedNote.value?.content.trim() ?? "";
+  if (!source) return "";
+  const html = marked.parse(source, { breaks: true, gfm: true, async: false });
+  const safeHtml = DOMPurify.sanitize(html);
+  return safeHtml.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
+});
+
+const renderedContextualAi = computed(() => {
+  if (!contextualAiOutput.value) return "";
+  const html = marked.parse(contextualAiOutput.value, { breaks: true, gfm: true, async: false });
+  return DOMPurify.sanitize(html);
+});
+
+function createId(): string {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function makeNote(title = "无标题笔记", content = "", parentId: string | null = null): Note {
+  const now = new Date().toISOString();
+  return {
+    id: createId(),
+    title,
+    content,
+    knowledgeBaseId: selectedKnowledgeBaseId.value ?? "",
+    parentId,
+    deletedAt: null,
+    pinned: false,
+    tags: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function makeKnowledgeBase(name: string): KnowledgeBase {
+  return {
+    id: createId(),
+    name: name.trim(),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function knowledgeBaseNoteCount(id: string): number {
+  return notes.value.filter((note) => note.knowledgeBaseId === id && !note.deletedAt).length;
+}
+
+function selectKnowledgeBase(id: string): void {
+  activeNavigation.value = "library";
+  selectedKnowledgeBaseId.value = id;
+  selectedId.value = sortedNotes.value[0]?.id ?? null;
+  selectedText.value = "";
+  searchQuery.value = "";
+}
+
+function openCreateKnowledgeBase(): void {
+  knowledgeBaseName.value = "";
+  knowledgeBaseDialog.value = "create";
+  nextTick(() => document.querySelector<HTMLInputElement>("#knowledge-base-name")?.focus());
+}
+
+function openRenameKnowledgeBase(): void {
+  if (!selectedKnowledgeBase.value) return;
+  knowledgeBaseName.value = selectedKnowledgeBase.value.name;
+  knowledgeBaseDialog.value = "rename";
+  nextTick(() => document.querySelector<HTMLInputElement>("#knowledge-base-name")?.select());
+}
+
+function confirmKnowledgeBaseName(): void {
+  const name = knowledgeBaseName.value.trim();
+  if (!name) return;
+  if (knowledgeBaseDialog.value === "create") {
+    const base = makeKnowledgeBase(name);
+    knowledgeBases.value.push(base);
+    selectKnowledgeBase(base.id);
+    showToast("知识库已创建");
+  } else if (knowledgeBaseDialog.value === "rename" && selectedKnowledgeBase.value) {
+    selectedKnowledgeBase.value.name = name;
+    showToast("知识库已重命名");
+  }
+  knowledgeBaseDialog.value = null;
+}
+
+function openDeleteKnowledgeBase(): void {
+  if (knowledgeBases.value.length === 1) {
+    showToast("至少需要保留一个知识库");
+    return;
+  }
+  knowledgeBaseDialog.value = "delete";
+}
+
+function deleteKnowledgeBase(): void {
+  const baseId = selectedKnowledgeBaseId.value;
+  if (!baseId || knowledgeBases.value.length === 1) return;
+  notes.value = notes.value.filter((note) => note.knowledgeBaseId !== baseId);
+  knowledgeBases.value = knowledgeBases.value.filter((base) => base.id !== baseId);
+  selectKnowledgeBase(knowledgeBases.value[0].id);
+  knowledgeBaseDialog.value = null;
+  showToast("知识库及其中笔记已删除");
+}
+
+function closeKnowledgeBaseDialog(): void {
+  knowledgeBaseDialog.value = null;
+}
+
+function addNote(parentId: string | null = null): void {
+  const validParent = parentId
+    ? notes.value.find((note) => note.id === parentId && note.knowledgeBaseId === selectedKnowledgeBaseId.value)
+    : undefined;
+  const note = makeNote("无标题笔记", "", validParent?.id ?? null);
+  notes.value.push(note);
+  if (validParent) {
+    const next = new Set(collapsedNoteIds.value);
+    next.delete(validParent.id);
+    collapsedNoteIds.value = next;
+  }
+  selectedId.value = note.id;
+  searchQuery.value = "";
+  editorMode.value = settings.value.general.defaultEditorMode;
+  nextTick(() => titleInput.value?.select());
+}
+
+function addChildNote(parentId: string): void {
+  addNote(parentId);
+  showToast("已创建子文档");
+}
+
+function selectNote(id: string): void {
+  selectedId.value = id;
+  selectedText.value = "";
+}
+
+function markEdited(): void {
+  if (selectedNote.value) selectedNote.value.updatedAt = new Date().toISOString();
+}
+
+function togglePin(): void {
+  if (!selectedNote.value) return;
+  selectedNote.value.pinned = !selectedNote.value.pinned;
+  markEdited();
+  showToast(selectedNote.value.pinned ? "笔记已置顶" : "已取消置顶");
+}
+
+function duplicateNote(): void {
+  if (!selectedNote.value) return;
+  const duplicated = makeNote(
+    `${displayTitle(selectedNote.value)} 副本`,
+    selectedNote.value.content,
+    selectedNote.value.parentId,
+  );
+  duplicated.tags = [...selectedNote.value.tags];
+  notes.value.push(duplicated);
+  selectedId.value = duplicated.id;
+  showToast("已创建笔记副本");
+}
+
+function updateTags(event: Event): void {
+  if (!selectedNote.value) return;
+  const input = event.target as HTMLInputElement;
+  selectedNote.value.tags = [
+    ...new Set(
+      input.value
+        .split(/[,，]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
+  markEdited();
+}
+
+function requestDelete(): void {
+  if (selectedNote.value) showDeleteDialog.value = true;
+}
+
+/** Collects a document subtree iteratively so deeply nested notes cannot overflow the call stack. */
+function documentSubtreeIds(rootId: string): Set<string> {
+  const ids = new Set([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const note of notes.value) {
+      if (note.parentId && ids.has(note.parentId) && !ids.has(note.id)) {
+        ids.add(note.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
+function deleteSelectedNote(): void {
+  if (!selectedId.value) return;
+  const ids = documentSubtreeIds(selectedId.value);
+  const deletedAt = new Date().toISOString();
+  for (const note of notes.value) {
+    if (ids.has(note.id)) note.deletedAt = deletedAt;
+  }
+  selectedId.value = sortedNotes.value[0]?.id ?? null;
+  showDeleteDialog.value = false;
+  showToast(ids.size > 1 ? `文档及 ${ids.size - 1} 篇子文档已移入回收站` : "文档已移入回收站");
+}
+
+function restoreTrashedNote(id: string): void {
+  const ids = documentSubtreeIds(id);
+  for (const note of notes.value) {
+    if (ids.has(note.id)) note.deletedAt = null;
+  }
+  const restored = notes.value.find((note) => note.id === id);
+  if (restored?.parentId && notes.value.some((note) => note.id === restored.parentId && note.deletedAt)) {
+    restored.parentId = null;
+  }
+  showToast(ids.size > 1 ? `已恢复 ${ids.size} 篇文档` : "文档已恢复");
+}
+
+function requestPermanentDelete(target: "all" | string): void {
+  trashDeleteTarget.value = target;
+}
+
+function handleContextMenuAction(action: string): void {
+  const menu = contextMenu.value;
+  if (!menu) return;
+  contextMenu.value = null;
+
+  if (menu.kind === "trash") {
+    if (action === "restore") restoreTrashedNote(menu.id);
+    else if (action === "delete") requestPermanentDelete(menu.id);
+    return;
+  }
+
+  if (menu.kind === "knowledgeBase") {
+    selectKnowledgeBase(menu.id);
+    if (action === "newNote") addNote();
+    else if (action === "rename") openRenameKnowledgeBase();
+    else if (action === "delete") openDeleteKnowledgeBase();
+    return;
+  }
+
+  selectNote(menu.id);
+  if (action === "newChild") addChildNote(menu.id);
+  else if (action === "pin") togglePin();
+  else if (action === "duplicate") duplicateNote();
+  else if (action === "export") void exportMarkdown();
+  else if (action === "trash") requestDelete();
+}
+
+function confirmPermanentDelete(): void {
+  if (!trashDeleteTarget.value) return;
+  if (trashDeleteTarget.value === "all") {
+    notes.value = notes.value.filter((note) => !note.deletedAt);
+    showToast("回收站已清空");
+  } else {
+    const ids = documentSubtreeIds(trashDeleteTarget.value);
+    notes.value = notes.value.filter((note) => !ids.has(note.id));
+    showToast("文档已永久删除");
+  }
+  trashDeleteTarget.value = null;
+}
+
+function cancelDelete(): void {
+  showDeleteDialog.value = false;
+}
+
+function displayTitle(note: Note): string {
+  return note.title.trim() || note.content.trim().split("\n")[0].replace(/^#+\s*/, "") || "无标题笔记";
+}
+
+function formatFullDate(isoDate: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoDate));
+}
+
+function showToast(message: string): void {
+  toastMessage.value = message;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (toastMessage.value = ""), 2400);
+}
+
+function openSettings(tab: "general" | "ai" | "storage" | "about" = "general"): void {
+  settingsInitialTab.value = tab;
+  showSettingsDialog.value = true;
+}
+
+function updateSelection(): void {
+  const textarea = contentInput.value;
+  if (!textarea || !selectedNote.value) return;
+  selectionRange.value = {
+    start: textarea.selectionStart,
+    end: textarea.selectionEnd,
+  };
+  selectedText.value = selectedNote.value.content.slice(
+    textarea.selectionStart,
+    textarea.selectionEnd,
+  );
+}
+
+function ensureAiReady(): boolean {
+  if (settings.value.ai.enabled) return true;
+  openSettings("ai");
+  showToast("请先在设置中启用并配置 AI");
+  return false;
+}
+
+function clearContextualAi(): void {
+  contextualAiVersion += 1;
+  contextualAiBusy.value = null;
+  contextualAiOutput.value = "";
+  contextualAiError.value = "";
+  contextualAiLabel.value = "";
+  contextualAiSourceDocumentId.value = "";
+}
+
+async function runContextualAi(
+  operation: AiOperation,
+  label: string,
+  target: "selection" | "append" | "document",
+  prompt = "",
+): Promise<void> {
+  const note = selectedNote.value;
+  if (!note || contextualAiBusy.value || !ensureAiReady()) return;
+  if (target === "selection" && !selectedText.value.trim()) {
+    showToast("请先选择要处理的文字");
+    return;
+  }
+
+  const sourceDocumentId = note.id;
+  const version = ++contextualAiVersion;
+  contextualAiSourceDocumentId.value = sourceDocumentId;
+  contextualAiRange.value = { ...selectionRange.value };
+  contextualAiTarget.value = target;
+  contextualAiLabel.value = label;
+  contextualAiOutput.value = "";
+  contextualAiError.value = "";
+  contextualAiBusy.value = operation;
+  const selection = target === "selection" ? selectedText.value : "";
+  const request = createDocumentAiRequest(note, operation, prompt, selection);
+  let streamError = "";
+
+  try {
+    await streamAi(request, (event) => {
+      if (version !== contextualAiVersion || selectedId.value !== sourceDocumentId) return;
+      if (event.event === "delta") contextualAiOutput.value += event.content;
+      if (event.event === "error") streamError = event.message;
+    });
+    if (version !== contextualAiVersion || selectedId.value !== sourceDocumentId) return;
+    if (streamError) contextualAiError.value = streamError;
+    if (!contextualAiOutput.value.trim() && !streamError) {
+      contextualAiError.value = "模型没有返回内容";
+    }
+  } catch (error) {
+    if (version === contextualAiVersion) contextualAiError.value = String(error);
+  } finally {
+    if (version === contextualAiVersion) contextualAiBusy.value = null;
+  }
+}
+
+function applyContextualAi(): void {
+  const note = selectedNote.value;
+  if (
+    !note ||
+    note.id !== contextualAiSourceDocumentId.value ||
+    !contextualAiOutput.value.trim()
+  ) {
+    showToast("当前文章已切换，未应用 AI 结果");
+    clearContextualAi();
+    return;
+  }
+  const content = contextualAiOutput.value.trim();
+  if (contextualAiTarget.value === "selection") {
+    const { start, end } = contextualAiRange.value;
+    note.content = `${note.content.slice(0, start)}${content}${note.content.slice(end)}`;
+    showToast("已替换原选区");
+  } else if (contextualAiTarget.value === "document") {
+    note.content = content;
+    showToast("已替换当前文章正文");
+  } else {
+    const prefix = note.content.trim() ? "\n\n" : "";
+    note.content = `${note.content}${prefix}${content}`;
+    showToast("已追加到当前文章");
+  }
+  selectedText.value = "";
+  selectionRange.value = { start: 0, end: 0 };
+  markEdited();
+  clearContextualAi();
+}
+
+function parseAiTags(content: string): string[] {
+  return content
+    .replace(/[#*`]/g, "")
+    .split(/[,，\n、]/)
+    .map((tag) => tag.trim().replace(/^[-\d.)\s]+/, ""))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+async function generateMetadata(operation: "title" | "tags"): Promise<void> {
+  const note = selectedNote.value;
+  if (!note || metadataAiBusy.value || !ensureAiReady()) return;
+  if (!note.content.trim()) {
+    showToast("先写一些正文，AI 才能生成内容");
+    return;
+  }
+  const sourceDocumentId = note.id;
+  const version = ++metadataAiVersion;
+  metadataAiBusy.value = operation;
+  let output = "";
+  let streamError = "";
+  try {
+    await streamAi(createDocumentAiRequest(note, operation), (event) => {
+      if (version !== metadataAiVersion || selectedId.value !== sourceDocumentId) return;
+      if (event.event === "delta") output += event.content;
+      if (event.event === "error") streamError = event.message;
+    });
+    if (version !== metadataAiVersion || selectedId.value !== sourceDocumentId) return;
+    if (streamError) throw new Error(streamError);
+    if (!output.trim()) throw new Error("模型没有返回内容");
+    if (operation === "title") {
+      applyAiTitle(output);
+    } else {
+      applyAiTags(parseAiTags(output));
+    }
+  } catch (error) {
+    showToast(`AI 生成失败：${String(error)}`);
+  } finally {
+    if (version === metadataAiVersion) metadataAiBusy.value = null;
+  }
+}
+
+function appendDocumentAiContent(content: string): void {
+  const note = selectedNote.value;
+  if (!note) return;
+  const prefix = note.content.trim() ? "\n\n" : "";
+  note.content = `${note.content}${prefix}${content.trim()}`;
+  markEdited();
+  showToast("AI 草稿已追加到当前文章");
+}
+
+function replaceDocumentAiContent(content: string): void {
+  if (!selectedNote.value) return;
+  selectedNote.value.content = content.trim();
+  markEdited();
+  showToast("当前文章正文已更新");
+}
+
+function insertAiContent(content: string): void {
+  const note = selectedNote.value;
+  if (!note) return;
+  const { start, end } = selectionRange.value;
+  const position = Math.min(end || note.content.length, note.content.length);
+  const prefix = position > 0 && !note.content.slice(0, position).endsWith("\n") ? "\n\n" : "";
+  note.content = `${note.content.slice(0, position)}${prefix}${content}${note.content.slice(position)}`;
+  markEdited();
+  showToast("AI 内容已插入笔记");
+}
+
+function applyAiTags(tags: string[]): void {
+  if (!selectedNote.value) return;
+  selectedNote.value.tags = [...new Set([...selectedNote.value.tags, ...tags])].slice(0, 8);
+  markEdited();
+  showToast("AI 标签已应用");
+}
+
+function applyAiTitle(title: string): void {
+  if (!selectedNote.value) return;
+  selectedNote.value.title = title.replace(/^#+\s*/, "").replace(/[“”"]/g, "").trim();
+  markEdited();
+  showToast("AI 标题已应用");
+}
+
+async function saveSettingsFromDialog(
+  updatedSettings: AppSettings,
+  apiKey: string,
+): Promise<void> {
+  savingSettings.value = true;
+  try {
+    const view = await saveAppSettings(updatedSettings, apiKey);
+    settings.value = view.settings;
+    hasApiKey.value = view.hasApiKey;
+    showSettingsDialog.value = false;
+    showToast("设置已保存");
+  } catch (error) {
+    showToast(`设置保存失败：${String(error)}`);
+  } finally {
+    savingSettings.value = false;
+  }
+}
+
+function handleDirectoryChanged(path: string): void {
+  settings.value.documentDirectory = path;
+  showToast("文档已复制到新目录");
+}
+
+async function importMarkdown(): Promise<void> {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    showToast("请在桌面应用中使用导入功能");
+    return;
+  }
+  try {
+    const imported = await invoke<ImportedMarkdown | null>("import_markdown");
+    if (!imported) return;
+    const note = makeNote(imported.title, imported.content);
+    notes.value.push(note);
+    selectedId.value = note.id;
+    editorMode.value = settings.value.general.defaultEditorMode;
+    showToast("Markdown 已导入");
+  } catch (error) {
+    showToast(`导入失败：${String(error)}`);
+  }
+}
+
+async function exportMarkdown(): Promise<void> {
+  if (!selectedNote.value || !("__TAURI_INTERNALS__" in window)) {
+    showToast("请在桌面应用中使用导出功能");
+    return;
+  }
+  try {
+    const path = await invoke<string | null>("export_markdown", { note: selectedNote.value });
+    if (path) showToast("Markdown 已导出");
+  } catch (error) {
+    showToast(`导出失败：${String(error)}`);
+  }
+}
+
+function wrapSelection(before: string, after = before, placeholder = "文本"): void {
+  const textarea = contentInput.value;
+  const note = selectedNote.value;
+  if (!textarea || !note) return;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selected = note.content.slice(start, end) || placeholder;
+  note.content = `${note.content.slice(0, start)}${before}${selected}${after}${note.content.slice(end)}`;
+  markEdited();
+  nextTick(() => {
+    textarea.focus();
+    textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
+  });
+}
+
+function prefixLines(prefix: string, placeholder = "列表项"): void {
+  const textarea = contentInput.value;
+  const note = selectedNote.value;
+  if (!textarea || !note) return;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const lineStart = note.content.lastIndexOf("\n", start - 1) + 1;
+  const selected = note.content.slice(lineStart, end) || placeholder;
+  const replacement = selected.split("\n").map((line) => `${prefix}${line}`).join("\n");
+  note.content = `${note.content.slice(0, lineStart)}${replacement}${note.content.slice(end)}`;
+  markEdited();
+  nextTick(() => textarea.focus());
+}
+
+function claimScrollSync(owner: "editor" | "preview"): void {
+  scrollSyncOwner = owner;
+  window.clearTimeout(scrollSyncTimer);
+}
+
+function syncScroll(
+  owner: "editor" | "preview",
+  source: HTMLElement,
+  target: HTMLElement,
+): void {
+  if (editorMode.value !== "split") return;
+  if (scrollSyncOwner && scrollSyncOwner !== owner) return;
+  scrollSyncOwner = owner;
+  window.clearTimeout(scrollSyncTimer);
+  const sourceRange = source.scrollHeight - source.clientHeight;
+  const targetRange = target.scrollHeight - target.clientHeight;
+  if (sourceRange > 0 && targetRange > 0) {
+    target.scrollTop = (source.scrollTop / sourceRange) * targetRange;
+  }
+  scrollSyncTimer = window.setTimeout(() => {
+    scrollSyncOwner = null;
+  }, 120);
+}
+
+function syncFromEditor(): void {
+  if (contentInput.value && previewInput.value) {
+    syncScroll("editor", contentInput.value, previewInput.value);
+  }
+}
+
+function syncFromPreview(): void {
+  if (previewInput.value && contentInput.value) {
+    syncScroll("preview", previewInput.value, contentInput.value);
+  }
+}
+
+async function persistNotes(): Promise<void> {
+  saveState.value = "saving";
+  errorMessage.value = "";
+  try {
+    await saveStore({
+      knowledgeBases: knowledgeBases.value,
+      notes: notes.value,
+    });
+    saveState.value = "saved";
+  } catch (error) {
+    saveState.value = "error";
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function handleKeydown(event: KeyboardEvent): void {
+  const modifier = event.metaKey || event.ctrlKey;
+  if (modifier && event.key.toLocaleLowerCase() === "n") {
+    event.preventDefault();
+    addNote();
+  }
+  if (modifier && event.key.toLocaleLowerCase() === "f") {
+    event.preventDefault();
+    document.querySelector<HTMLInputElement>(".document-search input")?.focus();
+  }
+  if (modifier && event.key.toLocaleLowerCase() === "s") {
+    event.preventDefault();
+    void persistNotes();
+  }
+  if (modifier && event.key === ",") {
+    event.preventDefault();
+    openSettings("general");
+  }
+  if (modifier && event.key.toLocaleLowerCase() === "j") {
+    event.preventDefault();
+    showAiWritingDialog.value = true;
+  }
+  if (event.key === "Escape") {
+    closeMenus();
+    showDeleteDialog.value = false;
+    knowledgeBaseDialog.value = null;
+    showSettingsDialog.value = false;
+    showAiWritingDialog.value = false;
+    clearContextualAi();
+  }
+}
+
+watch(
+  [notes, knowledgeBases],
+  () => {
+    if (!hydrated) return;
+    saveState.value = "saving";
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(
+      persistNotes,
+      settings.value.general.autoSaveDelayMs,
+    );
+  },
+  { deep: true },
+);
+
+watch(selectedId, () => {
+  metadataAiVersion += 1;
+  metadataAiBusy.value = null;
+  showAiWritingDialog.value = false;
+  clearContextualAi();
+  selectedText.value = "";
+  selectionRange.value = { start: 0, end: 0 };
+});
+
+watch(aiPanelOpen, (open) => {
+  if (!open) return;
+  sidebarWidth.value = clamp(sidebarWidth.value, 220, maximumSidebarWidth());
+  aiPanelWidth.value = clamp(aiPanelWidth.value, 300, maximumAiPanelWidth());
+  persistPanelWidths();
+});
+
+onMounted(async () => {
+  window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("click", closeMenus);
+  window.addEventListener("resize", fitPanelsToWindow);
+  try {
+    const settingsView = await loadAppSettings();
+    settings.value = settingsView.settings;
+    hasApiKey.value = settingsView.hasApiKey;
+    editorMode.value = settings.value.general.defaultEditorMode;
+
+    const store = await loadStore();
+    knowledgeBases.value = store.knowledgeBases;
+    notes.value = store.notes;
+
+    if (knowledgeBases.value.length === 0) {
+      knowledgeBases.value = [makeKnowledgeBase("我的知识库")];
+    }
+    const defaultBaseId = knowledgeBases.value[0].id;
+    selectedKnowledgeBaseId.value = defaultBaseId;
+    for (const note of notes.value) {
+      if (!knowledgeBases.value.some((base) => base.id === note.knowledgeBaseId)) {
+        note.knowledgeBaseId = defaultBaseId;
+      }
+      const parent = notes.value.find((candidate) => candidate.id === note.parentId);
+      if (!parent || parent.id === note.id || parent.knowledgeBaseId !== note.knowledgeBaseId) {
+        note.parentId = null;
+      }
+    }
+
+    if (notes.value.length === 0) {
+      notes.value = [
+        makeNote(
+          "欢迎使用",
+          "## 从这里开始\n\n这是一款本地优先的 **Markdown + AI** 笔记应用。\n\n- 最左侧切换知识库，中间列表管理文档与子文档\n- 每篇笔记都保存为指定目录中的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + F` 搜索，`⌘/Ctrl + J` 打开 AI 写作\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
+        ),
+      ];
+      notes.value[0].tags = ["开始", "Markdown"];
+    }
+    selectedId.value = sortedNotes.value[0]?.id ?? null;
+    hydrated = true;
+    await persistNotes();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+    saveState.value = "error";
+  } finally {
+    isLoading.value = false;
+  }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("click", closeMenus);
+  window.removeEventListener("resize", fitPanelsToWindow);
+  window.removeEventListener("pointermove", handlePanelResize);
+  document.body.classList.remove("panel-resizing");
+  window.clearTimeout(saveTimer);
+  window.clearTimeout(toastTimer);
+  window.clearTimeout(scrollSyncTimer);
+});
+</script>
+
+<template>
+  <main
+    class="app-shell"
+    :class="{
+      'ai-visible': aiPanelOpen,
+      'sidebar-collapsed': sidebarCollapsed,
+      'library-collapsed': libraryRailCollapsed,
+      'trash-visible': activeNavigation === 'trash',
+    }"
+    :style="layoutStyle"
+    @contextmenu="handleAppContextMenu"
+    @scroll.capture="contextMenu = null"
+  >
+    <KnowledgeRail
+      v-if="!libraryRailCollapsed"
+      :knowledge-bases="knowledgeBases"
+      :notes="notes"
+      :selected-id="selectedKnowledgeBaseId"
+      :save-state="saveState"
+      :document-pane-collapsed="sidebarCollapsed"
+      :trash-active="activeNavigation === 'trash'"
+      :trash-count="trashedNotes.length"
+      @select="selectKnowledgeBase"
+      @create="openCreateKnowledgeBase"
+      @rename="openRenameKnowledgeBase"
+      @delete="openDeleteKnowledgeBase"
+      @import="importMarkdown"
+      @toggle-documents="toggleSidebar"
+      @toggle-rail="toggleLibraryRail"
+      @open-trash="openTrash"
+      @context="openKnowledgeBaseContextMenu"
+      @open-settings="openSettings"
+    />
+
+    <button
+      v-else
+      class="library-reopen-button"
+      type="button"
+      title="展开知识库栏"
+      aria-label="展开知识库栏"
+      @click="toggleLibraryRail"
+    >›</button>
+
+    <NoteListPane
+      v-if="!sidebarCollapsed && activeNavigation === 'library'"
+      v-model:search-query="searchQuery"
+      :notes="sortedNotes"
+      :selected-id="selectedId"
+      :knowledge-base-name="selectedKnowledgeBase?.name ?? '文档'"
+      :mode="noteListMode"
+      :collapsed-ids="collapsedNoteIds"
+      :loading="isLoading"
+      :shortcut-prefix="shortcutPrefix"
+      @select="selectNote"
+      @add-note="addNote()"
+      @add-child="addChildNote"
+      @set-mode="setNoteListMode"
+      @toggle-branch="toggleNoteBranch"
+      @context="openNoteContextMenu"
+    />
+
+    <TrashPane
+      v-else-if="!sidebarCollapsed"
+      :notes="trashedNotes"
+      @close="closeTrash"
+      @restore="restoreTrashedNote"
+      @remove="requestPermanentDelete"
+      @empty="requestPermanentDelete('all')"
+      @context="openTrashContextMenu"
+    />
+
+    <div
+      v-if="!sidebarCollapsed"
+      class="panel-resizer sidebar-resizer"
+      role="separator"
+      aria-label="调整侧栏宽度"
+      aria-orientation="vertical"
+      :aria-valuenow="Math.round(sidebarWidth)"
+      tabindex="0"
+      @pointerdown="startPanelResize('sidebar', $event)"
+      @keydown.left.prevent="nudgePanel('sidebar', -16)"
+      @keydown.right.prevent="nudgePanel('sidebar', 16)"
+    >
+      <button
+        class="resizer-collapse-button"
+        type="button"
+        title="收起侧栏"
+        aria-label="收起侧栏"
+        @pointerdown.stop
+        @click.stop="toggleSidebar"
+      >‹</button>
+    </div>
+
+    <button
+      v-else
+      class="sidebar-reopen-button"
+      type="button"
+      title="展开文档列表"
+      aria-label="展开文档列表"
+      @click="toggleSidebar"
+    >›</button>
+
+    <section v-if="selectedNote && activeNavigation === 'library'" class="editor-pane">
+      <header class="editor-toolbar">
+        <div class="editor-meta">
+          <span>{{ formatFullDate(selectedNote.updatedAt) }}</span>
+          <span class="divider"></span>
+          <span>{{ characterCount }} 字</span>
+        </div>
+
+        <div class="editor-toolbar-actions">
+          <button
+            class="ai-toggle-button"
+            :class="{ active: aiPanelOpen }"
+            type="button"
+            title="打开 AI 助手"
+            @click="aiPanelOpen = !aiPanelOpen"
+          >
+            <span>✦</span>AI
+          </button>
+          <div class="mode-switch" aria-label="编辑视图">
+            <button :class="{ active: editorMode === 'edit' }" type="button" @click="editorMode = 'edit'">编辑</button>
+            <button :class="{ active: editorMode === 'split' }" type="button" @click="editorMode = 'split'">分栏</button>
+            <button :class="{ active: editorMode === 'preview' }" type="button" @click="editorMode = 'preview'">预览</button>
+          </div>
+          <span v-if="editorMode === 'split'" class="sync-indicator" title="编辑与预览双向同步滚动">⇅ 同步</span>
+          <button class="icon-button" :class="{ selected: selectedNote.pinned }" type="button" title="置顶笔记" aria-label="置顶笔记" @click="togglePin">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 4 6 0-1 5 3 3v2H7v-2l3-3-1-5Zm3 10v6" /></svg>
+          </button>
+          <div class="popup-menu-wrap" @click.stop>
+            <button class="icon-button" type="button" title="更多文档操作" aria-label="更多文档操作" @click="toggleMenu('document')">•••</button>
+            <div v-if="documentMenuOpen" class="popup-menu document-popup" role="menu">
+              <button type="button" role="menuitem" @click="addChildNote(selectedNote.id); closeMenus()">新建子文档</button>
+              <button type="button" role="menuitem" @click="duplicateNote(); closeMenus()">创建副本</button>
+              <button type="button" role="menuitem" @click="exportMarkdown(); closeMenus()">导出 Markdown</button>
+              <span></span>
+              <button class="danger" type="button" role="menuitem" @click="requestDelete(); closeMenus()">删除笔记</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <article class="editor">
+        <div class="title-row">
+          <input ref="titleInput" v-model="selectedNote.title" class="title-input" type="text" maxlength="200" placeholder="无标题笔记" aria-label="笔记标题" @input="markEdited" />
+          <button
+            class="field-ai-button"
+            type="button"
+            :disabled="metadataAiBusy !== null"
+            title="根据当前文章生成标题"
+            @click="generateMetadata('title')"
+          >
+            <span>✦</span>{{ metadataAiBusy === 'title' ? '生成中' : '生成标题' }}
+          </button>
+        </div>
+        <div class="tag-editor">
+          <span>标签</span>
+          <input :value="selectedNote.tags.join(', ')" type="text" maxlength="160" placeholder="工作, 灵感（用逗号分隔）" @change="updateTags" />
+          <button
+            class="field-ai-button compact"
+            type="button"
+            :disabled="metadataAiBusy !== null"
+            title="根据当前文章推荐标签"
+            @click="generateMetadata('tags')"
+          >
+            <span>✦</span>{{ metadataAiBusy === 'tags' ? '生成中' : '智能标签' }}
+          </button>
+        </div>
+
+        <div v-if="selectedText && editorMode !== 'preview'" class="selection-ai-bar">
+          <span class="selection-ai-context">已选 {{ selectedText.length }} 字</span>
+          <span class="selection-ai-divider"></span>
+          <button type="button" :disabled="contextualAiBusy !== null" @click="runContextualAi('polish', '润色选区', 'selection')">✦ 润色</button>
+          <button type="button" :disabled="contextualAiBusy !== null" @click="runContextualAi('translate', '翻译选区', 'selection')">翻译</button>
+          <div class="popup-menu-wrap" @click.stop>
+            <button type="button" :disabled="contextualAiBusy !== null" @click="toggleMenu('selectionAi')">更多⌄</button>
+            <div v-if="selectionAiMenuOpen" class="popup-menu selection-ai-popup" role="menu">
+              <button type="button" role="menuitem" @click="runContextualAi('shorten', '精简选区', 'selection'); closeMenus()">精简表达</button>
+              <button type="button" role="menuitem" @click="runContextualAi('expand', '扩写选区', 'selection'); closeMenus()">扩写内容</button>
+              <button type="button" role="menuitem" @click="runContextualAi('explain', '解释选区', 'selection'); closeMenus()">解释这段内容</button>
+              <button type="button" role="menuitem" @click="runContextualAi('todos', '提取选区行动项', 'selection'); closeMenus()">提取行动项</button>
+              <span></span>
+              <button type="button" role="menuitem" @click="runContextualAi('polish', '改为专业表达', 'selection', '改为专业、准确、克制的表达，保留原意。'); closeMenus()">改为专业表达</button>
+              <button type="button" role="menuitem" @click="runContextualAi('polish', '改为自然口语', 'selection', '改为自然、简洁、易懂的口语表达，保留原意。'); closeMenus()">改为自然口语</button>
+            </div>
+          </div>
+          <small>仅处理当前选区</small>
+        </div>
+
+        <section v-if="contextualAiLabel" class="contextual-ai-result" aria-live="polite">
+          <header>
+            <div><span>✦</span><strong>{{ contextualAiLabel }}</strong><small>仅当前文章</small></div>
+            <button type="button" aria-label="关闭 AI 结果" @click="clearContextualAi">×</button>
+          </header>
+          <div v-if="contextualAiOutput" class="contextual-ai-markdown" v-html="renderedContextualAi"></div>
+          <div v-else-if="contextualAiBusy" class="contextual-ai-loading"><i></i><i></i><i></i><span>正在流式生成…</span></div>
+          <p v-if="contextualAiError" class="contextual-ai-error">{{ contextualAiError }}</p>
+          <footer v-if="contextualAiOutput && !contextualAiBusy">
+            <button type="button" class="secondary-button" @click="clearContextualAi">放弃</button>
+            <button type="button" class="primary-button" @click="applyContextualAi">
+              {{ contextualAiTarget === 'selection' ? '替换选区' : contextualAiTarget === 'document' ? '替换全文' : '追加到正文' }}
+            </button>
+          </footer>
+        </section>
+
+        <div v-if="editorMode !== 'preview'" class="markdown-toolbar" aria-label="Markdown 格式工具栏">
+          <button type="button" title="二级标题" @click="prefixLines('## ', '标题')">H2</button>
+          <button type="button" title="粗体" @click="wrapSelection('**')"><strong>B</strong></button>
+          <button type="button" title="斜体" @click="wrapSelection('_')"><em>I</em></button>
+          <span class="toolbar-divider"></span>
+          <button type="button" title="无序列表" @click="prefixLines('- ')">• 列表</button>
+          <div class="popup-menu-wrap format-menu-wrap" @click.stop>
+            <button type="button" title="更多 Markdown 格式" @click="toggleMenu('format')">更多⌄</button>
+            <div v-if="formatMenuOpen" class="popup-menu format-popup" role="menu">
+              <button type="button" role="menuitem" @click="prefixLines('- [ ] '); closeMenus()">任务清单</button>
+              <button type="button" role="menuitem" @click="prefixLines('> ', '引用内容'); closeMenus()">引用</button>
+              <button type="button" role="menuitem" @click="wrapSelection('`', '`', '代码'); closeMenus()">行内代码</button>
+              <button type="button" role="menuitem" @click="wrapSelection('[', '](https://)', '链接文字'); closeMenus()">链接</button>
+            </div>
+          </div>
+          <div class="markdown-ai-tools">
+            <button type="button" :disabled="contextualAiBusy !== null" title="从当前文章结尾继续写" @click="runContextualAi('continue', '续写当前文章', 'append')"><span>✦</span>续写</button>
+            <button type="button" title="打开 AI 写作工作台" @click="showAiWritingDialog = true"><span>✦</span>写作</button>
+            <div class="popup-menu-wrap" @click.stop>
+              <button type="button" title="更多 AI 工具" @click="toggleMenu('editorAi')">AI⌄</button>
+              <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">
+                <button type="button" role="menuitem" @click="runContextualAi('proofread', '校对当前文章', 'document'); closeMenus()">全文校对</button>
+                <button type="button" role="menuitem" @click="runContextualAi('outline', '生成文章大纲', 'append'); closeMenus()">生成大纲</button>
+                <button type="button" role="menuitem" @click="runContextualAi('summarize', '总结当前文章', 'append'); closeMenus()">生成摘要</button>
+                <button type="button" role="menuitem" @click="runContextualAi('todos', '提取行动项', 'append'); closeMenus()">提取行动项</button>
+              </div>
+            </div>
+          </div>
+          <span class="markdown-hint">Markdown</span>
+        </div>
+
+        <div ref="writingAreaInput" class="writing-area" :class="`mode-${editorMode}`" :style="writingAreaStyle">
+          <textarea
+            v-if="editorMode !== 'preview'"
+            ref="contentInput"
+            v-model="selectedNote.content"
+            class="content-input"
+            placeholder="用 Markdown 写下此刻…"
+            aria-label="Markdown 笔记正文"
+            spellcheck="true"
+            @input="markEdited"
+            @select="updateSelection"
+            @mouseup="updateSelection"
+            @keyup="updateSelection"
+            @pointerenter="claimScrollSync('editor')"
+            @wheel.passive="claimScrollSync('editor')"
+            @scroll="syncFromEditor"
+          ></textarea>
+
+          <div
+            v-if="editorMode === 'split'"
+            class="editor-split-resizer"
+            role="separator"
+            aria-label="调整编辑与预览宽度"
+            aria-orientation="vertical"
+            :aria-valuenow="Math.round(editorSplitPercent)"
+            tabindex="0"
+            @pointerdown="startPanelResize('editorSplit', $event)"
+            @keydown.left.prevent="nudgePanel('editorSplit', -2)"
+            @keydown.right.prevent="nudgePanel('editorSplit', 2)"
+          ></div>
+
+          <section
+            v-if="editorMode !== 'edit'"
+            ref="previewInput"
+            class="markdown-preview"
+            aria-label="Markdown 预览"
+            @pointerenter="claimScrollSync('preview')"
+            @wheel.passive="claimScrollSync('preview')"
+            @scroll="syncFromPreview"
+          >
+            <div v-if="renderedMarkdown" class="markdown-body" v-html="renderedMarkdown"></div>
+            <div v-else class="preview-placeholder">Markdown 预览会显示在这里</div>
+          </section>
+        </div>
+      </article>
+
+      <div v-if="errorMessage" class="error-banner" role="alert">保存失败：{{ errorMessage }}</div>
+    </section>
+
+    <section v-else class="empty-editor">
+      <template v-if="activeNavigation === 'trash'">
+        <div class="empty-illustration">♲</div>
+        <h2>回收站</h2>
+        <p>在左侧恢复文档，或永久清理不再需要的内容。</p>
+      </template>
+      <template v-else>
+        <img class="empty-logo" src="/logo.svg" alt="" />
+        <h2>写下此刻</h2>
+        <p>“{{ selectedKnowledgeBase?.name }}”还没有笔记。</p>
+        <button type="button" @click="addNote()">新建笔记</button>
+      </template>
+    </section>
+
+    <div
+      v-if="aiPanelOpen"
+      class="panel-resizer ai-resizer"
+      role="separator"
+      aria-label="调整 AI 面板宽度"
+      aria-orientation="vertical"
+      :aria-valuenow="Math.round(aiPanelWidth)"
+      tabindex="0"
+      @pointerdown="startPanelResize('ai', $event)"
+      @keydown.left.prevent="nudgePanel('ai', 16)"
+      @keydown.right.prevent="nudgePanel('ai', -16)"
+    ></div>
+
+    <AiPanel
+      v-if="aiPanelOpen"
+      :key="selectedNote?.id ?? 'no-document'"
+      :enabled="settings.ai.enabled"
+      :note="selectedNote"
+      @close="aiPanelOpen = false"
+      @open-settings="openSettings('ai')"
+      @insert="insertAiContent"
+    />
+
+    <AiWritingDialog
+      v-if="showAiWritingDialog && selectedNote"
+      :key="selectedNote.id"
+      :enabled="settings.ai.enabled"
+      :note="selectedNote"
+      @close="showAiWritingDialog = false"
+      @open-settings="showAiWritingDialog = false; openSettings('ai')"
+      @insert="appendDocumentAiContent"
+      @replace="replaceDocumentAiContent"
+    />
+
+    <AppContextMenu
+      v-if="contextMenu"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenuItems"
+      @select="handleContextMenuAction"
+    />
+
+    <div v-if="showDeleteDialog" class="dialog-backdrop" @click.self="cancelDelete">
+      <section class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title">
+        <div class="dialog-icon" aria-hidden="true">!</div>
+        <h2 id="dialog-title">移到回收站？</h2>
+        <p>“{{ selectedNote ? displayTitle(selectedNote) : '' }}”及其子文档将移到回收站，之后仍可恢复。</p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" @click="cancelDelete">取消</button>
+          <button type="button" class="delete-button" @click="deleteSelectedNote">移到回收站</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="trashDeleteTarget" class="dialog-backdrop" @click.self="trashDeleteTarget = null">
+      <section class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="permanent-delete-title">
+        <div class="dialog-icon" aria-hidden="true">!</div>
+        <h2 id="permanent-delete-title">永久删除？</h2>
+        <p>{{ trashDeleteTarget === 'all' ? '回收站中的全部文档' : '这篇文档及其子文档' }}将从磁盘移除，无法恢复。</p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" @click="trashDeleteTarget = null">取消</button>
+          <button type="button" class="delete-button" @click="confirmPermanentDelete">永久删除</button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="knowledgeBaseDialog === 'create' || knowledgeBaseDialog === 'rename'"
+      class="dialog-backdrop"
+      @click.self="closeKnowledgeBaseDialog"
+    >
+      <form class="dialog knowledge-dialog" @submit.prevent="confirmKnowledgeBaseName">
+        <div class="dialog-book-icon" aria-hidden="true">▤</div>
+        <h2>{{ knowledgeBaseDialog === 'create' ? '新建知识库' : '重命名知识库' }}</h2>
+        <p>知识库可以将不同主题或项目的笔记分开管理。</p>
+        <input
+          id="knowledge-base-name"
+          v-model="knowledgeBaseName"
+          type="text"
+          maxlength="40"
+          placeholder="例如：工作、学习、个人"
+          aria-label="知识库名称"
+        />
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" @click="closeKnowledgeBaseDialog">取消</button>
+          <button type="submit" class="primary-button" :disabled="!knowledgeBaseName.trim()">
+            {{ knowledgeBaseDialog === 'create' ? '创建' : '保存' }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="knowledgeBaseDialog === 'delete'" class="dialog-backdrop" @click.self="closeKnowledgeBaseDialog">
+      <section class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-base-title">
+        <div class="dialog-icon" aria-hidden="true">!</div>
+        <h2 id="delete-base-title">删除知识库？</h2>
+        <p>
+          “{{ selectedKnowledgeBase?.name }}”以及其中的 {{ selectedKnowledgeBaseId ? knowledgeBaseNoteCount(selectedKnowledgeBaseId) : 0 }} 篇笔记将被永久删除。
+        </p>
+        <div class="dialog-actions">
+          <button type="button" class="secondary-button" @click="closeKnowledgeBaseDialog">取消</button>
+          <button type="button" class="delete-button" @click="deleteKnowledgeBase">删除知识库</button>
+        </div>
+      </section>
+    </div>
+
+    <Transition name="toast">
+      <div v-if="toastMessage" class="toast" role="status">{{ toastMessage }}</div>
+    </Transition>
+
+    <SettingsDialog
+      v-if="showSettingsDialog"
+      :settings="settings"
+      :has-api-key="hasApiKey"
+      :store="storeSnapshot"
+      :saving="savingSettings"
+      :initial-tab="settingsInitialTab"
+      @close="showSettingsDialog = false"
+      @save="saveSettingsFromDialog"
+      @directory-changed="handleDirectoryChanged"
+      @key-cleared="hasApiKey = false"
+    />
+  </main>
+</template>
