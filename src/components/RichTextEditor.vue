@@ -339,3 +339,69 @@ defineExpose({ replaceRange, replaceDocument, appendMarkdown });
 <style scoped>
 .rich-text-editor{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column}.selection-ai-bubble{position:fixed;z-index:120;display:flex;align-items:center;gap:3px;padding:5px;border:1px solid rgb(255 255 255 / 14%);border-radius:9px;color:#fff;background:#37332e;box-shadow:0 10px 28px rgb(35 29 22 / 24%);transform:translate(-50%,-100%)}.selection-ai-bubble>span{padding:0 4px;color:#ffb66d;font-size:12px}.selection-ai-bubble button{height:27px;padding:0 8px;border:0;border-radius:6px;color:#f6f1e9;background:transparent;cursor:pointer;font-size:10px;white-space:nowrap}.selection-ai-bubble button:hover{background:rgb(255 255 255 / 11%)}.selection-more-wrap{position:relative}.selection-more-menu{position:absolute;z-index:40;top:33px;right:0;width:142px;padding:5px;border:1px solid #4e4942;border-radius:8px;background:#37332e;box-shadow:0 12px 30px rgb(20 17 14 / 30%)}.selection-more-menu button{display:flex;width:100%;justify-content:flex-start}.selection-more-menu>span{display:block;height:1px;margin:4px;background:#514c45}.rich-format-toolbar{position:relative;z-index:4;display:flex;min-height:39px;flex:0 0 auto;align-items:center;gap:3px;padding:5px 8px;border:1px solid #e2ded5;border-radius:10px 10px 0 0;background:#faf8f3;overflow:visible}.rich-format-toolbar>button,.rich-more-wrap>button{height:27px;padding:0 7px;border:0;border-radius:6px;color:#6e685f;background:transparent;cursor:pointer;font-size:10px;white-space:nowrap}.rich-format-toolbar>button:hover,.rich-format-toolbar>button.active,.rich-more-wrap>button:hover,.rich-more-wrap>button.active{color:var(--accent-strong);background:var(--accent-soft)}.toolbar-divider{width:1px;height:15px;margin:0 2px;background:#ddd8ce}.rich-more-wrap{position:relative}.rich-format-menu{position:absolute;z-index:20;top:32px;left:0;width:168px;padding:6px;border:1px solid #ded9cf;border-radius:9px;background:#fffefa;box-shadow:0 12px 30px rgb(43 37 28 / 14%)}.rich-format-menu button{display:flex;width:100%;height:29px;align-items:center;padding:0 9px;border:0;border-radius:6px;color:#605b53;background:transparent;cursor:pointer;font-size:10px;text-align:left}.rich-format-menu button:hover,.rich-format-menu button.active{color:var(--accent-strong);background:var(--accent-softest)}.rich-format-menu button:disabled{opacity:.4;cursor:default}.rich-format-menu>span{display:block;height:1px;margin:4px;background:#ebe7df}.rich-toolbar-actions{display:flex;min-width:0;align-items:center;gap:3px;margin-left:auto}.rich-editor-badge{margin:0 3px 0 5px;color:#aaa399;font-size:9px;white-space:nowrap}.rich-editor-surface{min-width:0;min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;border:1px solid #e2ded5;border-top:0;border-radius:0 0 10px 10px;background:#fffefa}.rich-editor-surface::-webkit-scrollbar{width:9px}.rich-editor-surface::-webkit-scrollbar-thumb{border:3px solid transparent;border-radius:8px;background:#c7c1b6;background-clip:padding-box}.rich-editor-content{min-height:100%}.rich-editor-content :deep(.rich-document){width:min(100%,1180px);min-height:100%;margin:0 auto;padding:22px clamp(24px,4vw,64px) 80px;outline:0;color:#3f3b34;font-family:"Songti SC",STSong,Georgia,"Noto Serif CJK SC",serif;font-size:16px;line-height:1.82;overflow-wrap:anywhere}.rich-editor-content :deep(.rich-document>*:first-child){margin-top:0}.rich-editor-content :deep(.rich-document p){margin:.72em 0}.rich-editor-content :deep(.rich-document h1),.rich-editor-content :deep(.rich-document h2),.rich-editor-content :deep(.rich-document h3){margin:1.35em 0 .55em;color:#2e2a25;line-height:1.35}.rich-editor-content :deep(.rich-document h1){padding-bottom:.28em;border-bottom:1px solid #e8e3d9;font-size:2em}.rich-editor-content :deep(.rich-document h2){font-size:1.55em}.rich-editor-content :deep(.rich-document h3){font-size:1.25em}.rich-editor-content :deep(.rich-document ul),.rich-editor-content :deep(.rich-document ol){margin:.7em 0;padding-left:1.65em}.rich-editor-content :deep(.rich-document li){margin:.28em 0}.rich-editor-content :deep(.rich-document blockquote){margin:1em 0;padding:.35em 1em;border-left:3px solid var(--accent-border);color:#6a6258;background:var(--accent-softest)}.rich-editor-content :deep(.rich-document code){padding:.12em .34em;border-radius:4px;background:#f0ece4;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}.rich-editor-content :deep(.rich-document pre){overflow-x:auto;margin:1em 0;padding:14px 16px;border-radius:9px;color:#eee9df;background:#332f2a}.rich-editor-content :deep(.rich-document pre code){padding:0;color:inherit;background:transparent}.rich-editor-content :deep(.rich-document a){color:var(--accent-strong);text-decoration:underline;text-underline-offset:3px}.rich-editor-content :deep(.rich-document mark){padding:.04em .12em;border-radius:2px;color:inherit;background:#ffe0a8}.rich-editor-content :deep(.rich-document hr){margin:1.8em 0;border:0;border-top:1px solid #ddd7cc}.rich-editor-content :deep(.rich-document ul[data-type="taskList"]){padding:0;list-style:none}.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li){display:flex;align-items:flex-start;gap:8px}.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li>label){padding-top:.25em}.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li>div){min-width:0;flex:1}.rich-editor-content :deep(.rich-document table){width:100%;margin:1em 0;border-collapse:collapse;table-layout:fixed}.rich-editor-content :deep(.rich-document th),.rich-editor-content :deep(.rich-document td){position:relative;min-width:80px;padding:8px 10px;border:1px solid #dcd6ca;vertical-align:top}.rich-editor-content :deep(.rich-document th){background:#f5f1ea;font-weight:700}.rich-editor-content :deep(.rich-document .selectedCell::after){position:absolute;inset:0;content:"";pointer-events:none;background:rgb(232 111 22 / 10%)}.rich-editor-content :deep(.rich-document .column-resize-handle){position:absolute;top:0;right:-2px;bottom:-2px;width:4px;background:var(--accent)}.rich-editor-content :deep(.rich-document p.is-editor-empty:first-child::before){float:left;height:0;color:#bdb6aa;content:"写下此刻…";pointer-events:none}@media(max-width:1180px){.rich-format-toolbar>button:nth-of-type(1),.rich-format-toolbar>button:nth-of-type(4),.rich-format-toolbar>button:nth-of-type(9){display:none}.rich-editor-content :deep(.rich-document){padding-right:28px;padding-left:28px}}@media(max-width:860px){.rich-format-toolbar>button:nth-of-type(6),.rich-format-toolbar>button:nth-of-type(7),.rich-format-toolbar>button:nth-of-type(8){display:none}.rich-editor-badge{display:none}}
 </style>
+
+<style scoped>
+/* TipTap list items and table cells contain paragraphs internally. Reset the
+   document-level paragraph rhythm in these compact structures. */
+.rich-editor-content :deep(.rich-document li > p),
+.rich-editor-content :deep(.rich-document th > p),
+.rich-editor-content :deep(.rich-document td > p),
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li > div > p) {
+  margin: 0;
+}
+
+.rich-editor-content :deep(.rich-document li > p + p),
+.rich-editor-content :deep(.rich-document th > p + p),
+.rich-editor-content :deep(.rich-document td > p + p),
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li > div > p + p) {
+  margin-top: 0.45em;
+}
+
+.rich-editor-content :deep(.rich-document li > ul),
+.rich-editor-content :deep(.rich-document li > ol),
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li > div > ul) {
+  margin: 0.28em 0 0;
+}
+
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] > li) {
+  align-items: stretch;
+  gap: 9px;
+  margin: 0.16em 0;
+}
+
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li > label) {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  align-self: stretch;
+  padding: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] input[type="checkbox"]) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li > div) {
+  min-width: 0;
+}
+
+.rich-editor-content :deep(.rich-document ul[data-type="taskList"] li[data-checked="true"] > div) {
+  color: #8d877d;
+  text-decoration: line-through;
+  text-decoration-color: #bbb3a8;
+}
+
+.rich-editor-content :deep(.rich-document blockquote > p:first-child) {
+  margin-top: 0;
+}
+
+.rich-editor-content :deep(.rich-document blockquote > p:last-child) {
+  margin-bottom: 0;
+}
+</style>
