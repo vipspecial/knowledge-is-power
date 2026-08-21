@@ -34,6 +34,7 @@ _site/
 *.provisionprofile
 *.pem
 *.key
+*.key.pub
 
 # Logs
 *.log

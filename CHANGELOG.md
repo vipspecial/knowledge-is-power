@@ -2,6 +2,15 @@
 
 本文件记录“拿了桔子跑啊”的主要版本变化。
 
+## 0.6.2 — 2026-08-21
+
+### 修复
+
+- 重新生成可用的 Tauri 更新签名密钥，修复 Windows 与 Linux 打包末尾签名失败
+- GitHub Actions 在编译前验证私钥，并为无密码密钥显式设置空密码
+- macOS 同时构建 `app` 与 `dmg`，确保 Universal Release 包含自动更新压缩包和签名
+- 发布文档明确 macOS Universal、Windows x64 与 Linux x64 的架构范围
+
 ## 0.6.1 — 2026-08-21
 
 ### 修复

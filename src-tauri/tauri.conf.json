@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "拿了桔子跑啊",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "identifier": "com.peter.mojian",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -67,7 +67,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3RkUwOEZFNUI0NjI2QjcKUldTM0prWmIvZ2orMTFxaUFIb0J4UUVydHFiNXNPUDhDZGVHOFp0ZmJ0YUcySWt5cEtvM1VZcGkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM1NTIzMzRCNEVDMERDMkEKUldRcTNNQk9Tek5TeFZxL3I1SjJTMnc4K0RYOXhtQmJjZ1h4N1BFVVlKMlp3WlAyU1VlT3J4djYK",
       "endpoints": [
         "https://github.com/vipspecial/knowledge-is-power/releases/latest/download/latest.json"
       ]
