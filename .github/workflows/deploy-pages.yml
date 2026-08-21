@@ -7,7 +7,6 @@ on:
       - main
     paths:
       - "website/**"
-      - "CHANGELOG.md"
       - ".github/workflows/deploy-pages.yml"
 
 permissions:

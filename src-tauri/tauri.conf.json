@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "拿了桔子跑啊",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "identifier": "com.peter.mojian",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -18,8 +18,15 @@
         "minWidth": 920,
         "minHeight": 620,
         "center": true,
+        "maximized": true,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        }
       }
     ],
     "security": {
@@ -28,10 +35,11 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "Productivity",
-    "shortDescription": "本地优先的 AI Markdown 笔记应用",
-    "longDescription": "拿了桔子跑啊是一款支持多知识库、Markdown 文件存储和可配置 AI 助手的桌面笔记应用。",
+    "shortDescription": "本地优先的 AI 知识库应用",
+    "longDescription": "拿了桔子跑啊是一款支持多知识库、所见即所得编辑和可配置 AI 助手的桌面知识库应用。",
     "copyright": "Copyright © 2026 Peter",
     "icon": [
       "icons/32x32.png",
@@ -55,6 +63,14 @@
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ3RkUwOEZFNUI0NjI2QjcKUldTM0prWmIvZ2orMTFxaUFIb0J4UUVydHFiNXNPUDhDZGVHOFp0ZmJ0YUcySWt5cEtvM1VZcGkK",
+      "endpoints": [
+        "https://github.com/vipspecial/knowledge-is-power/releases/latest/download/latest.json"
+      ]
     }
   }
 }

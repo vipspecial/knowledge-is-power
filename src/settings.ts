@@ -6,7 +6,6 @@ const settingsStorageKey = "mojian-settings";
 export const defaultSettings: AppSettings = {
   general: {
     autoSaveDelayMs: 450,
-    defaultEditorMode: "split",
   },
   ai: {
     enabled: false,

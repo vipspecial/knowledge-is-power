@@ -31,6 +31,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check release version
+        run: npm run check:version
+
       - name: Cache Rust builds
         uses: swatinem/rust-cache@v2
         with:
@@ -57,13 +60,16 @@ jobs:
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             build_args: --target universal-apple-darwin --bundles dmg
             artifact_name: desktop-macos-universal
-            artifact_path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_path: |
+              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
           - name: Windows x64
             os: windows-latest
             rust_targets: x86_64-pc-windows-msvc
             build_args: --target x86_64-pc-windows-msvc --bundles nsis
             artifact_name: desktop-windows-x64
-            artifact_path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            artifact_path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*
           - name: Linux x64
             os: ubuntu-22.04
             rust_targets: x86_64-unknown-linux-gnu
@@ -71,7 +77,7 @@ jobs:
             artifact_name: desktop-linux-x64
             artifact_path: |
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
-              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*
 
     runs-on: ${{ matrix.os }}
 
@@ -107,6 +113,9 @@ jobs:
 
       - name: Build installer
         run: npm run tauri build -- ${{ matrix.build_args }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload installer
         uses: actions/upload-artifact@v7
@@ -123,12 +132,23 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
       - name: Download installers
         uses: actions/download-artifact@v7
         with:
           pattern: desktop-*
           path: release-artifacts
           merge-multiple: true
+
+      - name: Generate updater manifest
+        run: node scripts/generate-updater-manifest.mjs release-artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

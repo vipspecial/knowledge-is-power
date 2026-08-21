@@ -26,11 +26,8 @@ export interface NotesStore {
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
-export type EditorMode = "edit" | "split" | "preview";
-
 export interface GeneralSettings {
   autoSaveDelayMs: number;
-  defaultEditorMode: EditorMode;
 }
 
 export type AiProtocol = "chatCompletions" | "responses";
@@ -71,6 +68,32 @@ export type AiOperation =
   | "todos"
   | "title"
   | "tags";
+
+export type AiContentTarget = "selection" | "append" | "document" | "insert";
+
+export interface AiTextRange {
+  from: number;
+  to: number;
+}
+
+/** A scene-specific AI request dispatched to the document conversation panel. */
+export interface AiPanelTask {
+  id: string;
+  document: Note;
+  operation: AiOperation;
+  label: string;
+  prompt: string;
+  selection: string;
+  target: Exclude<AiContentTarget, "insert">;
+  range?: AiTextRange;
+}
+
+export interface AiApplyPayload {
+  documentId: string;
+  content: string;
+  target: AiContentTarget;
+  range?: AiTextRange;
+}
 
 export interface AiRequest {
   documentId: string;

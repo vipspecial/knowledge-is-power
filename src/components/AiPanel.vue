@@ -3,7 +3,15 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { createDocumentAiRequest, streamAi } from "../ai";
-import type { AiOperation, AiRequest, Note } from "../types";
+import type {
+  AiApplyPayload,
+  AiContentTarget,
+  AiOperation,
+  AiPanelTask,
+  AiRequest,
+  AiTextRange,
+  Note,
+} from "../types";
 
 interface AiMessage {
   id: string;
@@ -11,8 +19,23 @@ interface AiMessage {
   content: string;
   operation: AiOperation;
   sources: string[];
+  label?: string;
+  target?: AiContentTarget;
+  range?: AiTextRange;
   pending?: boolean;
   error?: boolean;
+  applied?: boolean;
+}
+
+interface RunOptions {
+  note: Note;
+  operation: AiOperation;
+  prompt: string;
+  selection?: string;
+  label?: string;
+  target?: AiContentTarget;
+  range?: AiTextRange;
+  userContent: string;
 }
 
 const props = defineProps<{
@@ -23,13 +46,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   openSettings: [];
-  insert: [content: string];
+  apply: [payload: AiApplyPayload];
 }>();
 
-const messages = ref<AiMessage[]>([]);
+/** Each document owns an independent in-memory conversation. */
+const conversations = ref<Record<string, AiMessage[]>>({});
 const chatInput = ref("");
 const busy = ref(false);
 const messageList = ref<HTMLElement | null>(null);
+const taskQueue: AiPanelTask[] = [];
 
 const quickPrompts = [
   { label: "快速摘要", prompt: "用一段摘要和三个要点概括当前文档。" },
@@ -42,9 +67,17 @@ let streamTimer: number | undefined;
 let streamTarget: AiMessage | null = null;
 let streamWaiters: Array<() => void> = [];
 
+const currentMessages = computed(() =>
+  props.note ? conversations.value[props.note.id] ?? [] : [],
+);
 const contextLabel = computed(() =>
   props.note ? `独立会话 · ${props.note.title || "无标题文档"}` : "未选择文档",
 );
+
+function conversationFor(documentId: string): AiMessage[] {
+  if (!conversations.value[documentId]) conversations.value[documentId] = [];
+  return conversations.value[documentId];
+}
 
 function renderMessage(content: string): string {
   return DOMPurify.sanitize(marked.parse(content, { breaks: true, gfm: true, async: false }));
@@ -52,6 +85,20 @@ function renderMessage(content: string): string {
 
 function createId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function selectionRequestText(label: string, selection: string): string {
+  const preview = selection.length > 420 ? `${selection.slice(0, 420)}…` : selection;
+  return `**${label}**\n\n> ${preview.replace(/\n/g, "\n> ")}`;
+}
+
+function recentConversationContext(messages: AiMessage[]): string {
+  const context = messages
+    .filter((message) => message.content.trim() && !message.pending && !message.error)
+    .slice(-8)
+    .map((message) => `${message.role === "user" ? "用户" : "助手"}：${message.content}`)
+    .join("\n\n");
+  return context.length > 6000 ? context.slice(-6000) : context;
 }
 
 async function scrollToBottom(): Promise<void> {
@@ -95,42 +142,50 @@ function clearStreamQueue(): void {
   finishStreamQueue();
 }
 
-async function run(prompt: string): Promise<void> {
+async function runRequest(options: RunOptions): Promise<void> {
   if (busy.value || !props.enabled) return;
-  if (!props.note) return;
-  const sourceDocumentId = props.note.id;
+  const messages = conversationFor(options.note.id);
+  const history = options.operation === "chat" ? recentConversationContext(messages) : "";
+  const requestPrompt = history
+    ? `${options.prompt}\n\n以下是本文章最近的对话，只用于理解追问上下文：\n${history}`
+    : options.prompt;
   const assistant: AiMessage = {
     id: createId(),
     role: "assistant",
     content: "",
-    operation: "chat",
-    sources: [props.note.title || "无标题笔记"],
+    operation: options.operation,
+    sources: [options.note.title || "无标题笔记"],
+    label: options.label,
+    target: options.target,
+    range: options.range,
     pending: true,
   };
-  messages.value.push({
+  messages.push({
     id: createId(),
     role: "user",
-    content: prompt,
-    operation: "chat",
+    content: options.userContent,
+    operation: options.operation,
     sources: [],
+    label: options.label,
   });
-  messages.value.push(assistant);
+  messages.push(assistant);
   busy.value = true;
   chatInput.value = "";
   clearStreamQueue();
   streamTarget = assistant;
   await scrollToBottom();
 
-  const request: AiRequest = createDocumentAiRequest(props.note, "chat", prompt);
-
+  const request: AiRequest = createDocumentAiRequest(
+    options.note,
+    options.operation,
+    requestPrompt,
+    options.selection ?? "",
+  );
   let streamError = "";
   try {
     await streamAi(request, (event) => {
-      if (props.note?.id !== sourceDocumentId) return;
       if (event.event === "delta") enqueueStreamDelta(assistant, event.content);
-      if (event.event === "error") {
-        streamError = event.message;
-      }
+      if (event.event === "error") streamError = event.message;
     });
     await waitForStreamQueue();
     assistant.pending = false;
@@ -155,14 +210,61 @@ async function run(prompt: string): Promise<void> {
     streamTarget = null;
     busy.value = false;
     await scrollToBottom();
+    const nextTask = taskQueue.shift();
+    if (nextTask) void executeTask(nextTask);
   }
+}
+
+function executeTask(task: AiPanelTask): Promise<void> {
+  return runRequest({
+    note: task.document,
+    operation: task.operation,
+    prompt: task.prompt,
+    selection: task.selection,
+    label: task.label,
+    target: task.target,
+    range: task.range,
+    userContent: task.selection
+      ? selectionRequestText(task.label, task.selection)
+      : `**${task.label}**`,
+  });
+}
+
+function acceptTask(task: AiPanelTask): void {
+  if (busy.value) taskQueue.push(task);
+  else void executeTask(task);
+}
+
+function runChat(prompt: string): void {
+  if (busy.value || !props.note) return;
+  const note = { ...props.note, tags: [...props.note.tags] };
+  void runRequest({ note, operation: "chat", prompt, userContent: prompt });
 }
 
 function sendChat(): void {
   const value = chatInput.value.trim();
-  if (value && props.note) void run(value);
+  if (value) runChat(value);
 }
 
+function messageActionLabel(message: AiMessage): string {
+  if (message.target === "selection") return "替换选区";
+  if (message.target === "document") return "替换全文";
+  if (message.target === "append") return "追加正文";
+  return "插入正文";
+}
+
+function applyMessage(message: AiMessage, documentId: string): void {
+  if (!message.content.trim() || message.pending || message.error) return;
+  emit("apply", {
+    documentId,
+    content: message.content.trim(),
+    target: message.target ?? "insert",
+    range: message.range,
+  });
+  message.applied = true;
+}
+
+defineExpose({ acceptTask });
 onBeforeUnmount(clearStreamQueue);
 </script>
 
@@ -191,35 +293,38 @@ onBeforeUnmount(clearStreamQueue);
           :key="item.label"
           type="button"
           :disabled="busy || !note"
-          @click="run(item.prompt)"
+          @click="runChat(item.prompt)"
         >
           {{ item.label }}
         </button>
       </section>
 
       <section ref="messageList" class="ai-messages" aria-live="polite">
-        <div v-if="messages.length === 0" class="ai-welcome">
+        <div v-if="currentMessages.length === 0" class="ai-welcome">
           <div>✦</div>
           <h3>问当前文档</h3>
-          <p>这里专注阅读、理解和追问。改写、标题、标签与成文入口已放到编辑位置旁边。</p>
-          <button type="button" :disabled="!note" @click="run('这篇文档最重要的三个结论是什么？')">提炼核心结论</button>
-          <button type="button" :disabled="!note" @click="run('以审稿人的角度，提出三个值得追问的问题。')">提出追问</button>
+          <p>选区改写、全文处理和自由提问都汇总在这里，并按文章独立保存本次会话。</p>
+          <button type="button" :disabled="!note" @click="runChat('这篇文档最重要的三个结论是什么？')">提炼核心结论</button>
+          <button type="button" :disabled="!note" @click="runChat('以审稿人的角度，提出三个值得追问的问题。')">提出追问</button>
         </div>
 
         <article
-          v-for="message in messages"
+          v-for="message in currentMessages"
           :key="message.id"
           class="ai-message"
           :class="[message.role, { error: message.error }]"
         >
           <div v-if="message.role === 'assistant'" class="message-avatar">✦</div>
           <div class="message-content">
+            <div v-if="message.role === 'assistant' && message.label" class="message-operation"><span>✦</span>{{ message.label }}</div>
             <div v-if="message.content" class="message-markdown" v-html="renderMessage(message.content)"></div>
             <div v-else class="typing"><i></i><i></i><i></i></div>
-            <div v-if="message.role === 'assistant' && message.content && !message.error" class="message-actions">
-              <button type="button" @click="emit('insert', message.content)">插入正文</button>
+            <div v-if="message.role === 'assistant' && message.content && !message.error && note" class="message-actions">
+              <button type="button" :disabled="message.applied" @click="applyMessage(message, note.id)">
+                {{ message.applied ? '已应用' : messageActionLabel(message) }}
+              </button>
             </div>
-            <div v-if="message.role === 'assistant' && message.operation === 'chat' && message.sources.length" class="message-sources">
+            <div v-if="message.role === 'assistant' && message.sources.length" class="message-sources">
               <span v-for="(source, index) in message.sources" :key="`${source}-${index}`">[{{ index + 1 }}] {{ source }}</span>
             </div>
           </div>
@@ -252,7 +357,7 @@ onBeforeUnmount(clearStreamQueue);
 </template>
 
 <style scoped>
-.ai-panel{display:flex;min-width:0;min-height:0;flex-direction:column;background:#f7f5f0}.ai-header{display:flex;height:62px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #e4e0d7}.ai-header>div{display:flex;align-items:center;gap:9px}.ai-mark{display:grid;width:31px;height:31px;place-items:center;border-radius:9px;color:#f8f4ea;background:linear-gradient(145deg,#5b7863,#354c3c);font-size:14px}.ai-header>div>div{display:flex;flex-direction:column}.ai-header strong{font-size:13px}.ai-header small{margin-top:2px;color:#969086;font-size:9px}.ai-header>button{display:grid;width:28px;height:28px;place-items:center;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:20px}.ai-header>button:hover{background:#ebe7df}.ai-context{display:flex;height:34px;flex:0 0 auto;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #eae6de;color:#827c72}.ai-context span{width:6px;height:6px;border-radius:50%;background:#729079}.ai-context p{min-width:0;overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.ai-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:10px 11px;border-bottom:1px solid #e6e2d9}.ai-actions button{display:flex;height:31px;align-items:center;justify-content:center;gap:5px;border:1px solid #e0dcd3;border-radius:7px;color:#615d55;background:#fffefa;cursor:pointer;font-size:10px}.ai-actions button:hover:not(:disabled){border-color:#bdcbbf;color:#3f6249;background:#f0f5f0}.ai-actions button:disabled{opacity:.45;cursor:default}.ai-actions button span{color:#55705d;font-size:11px}.ai-messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:15px 13px}.ai-messages::-webkit-scrollbar{width:8px}.ai-messages::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#c9c3b8;background-clip:padding-box}.ai-welcome{display:grid;justify-items:center;padding:34px 15px;text-align:center}.ai-welcome>div{display:grid;width:43px;height:43px;place-items:center;margin-bottom:11px;border-radius:13px;color:#52705b;background:#e6eee7;font-size:19px}.ai-welcome h3{margin:0;color:#48443d;font-size:14px}.ai-welcome p{margin:8px 0 17px;color:#8b857c;font-size:10px;line-height:1.6}.ai-welcome button{width:100%;margin-bottom:6px;padding:8px 10px;border:1px solid #e0dcd3;border-radius:7px;color:#69645b;background:#fffefa;cursor:pointer;font-size:10px;text-align:left}.ai-welcome button:hover{border-color:#bdcbbf;color:#3e5f48}.ai-message{display:flex;gap:7px;margin-bottom:14px}.ai-message.user{justify-content:flex-end}.message-avatar{display:grid;width:23px;height:23px;flex:0 0 auto;place-items:center;border-radius:7px;color:#fff;background:#58715f;font-size:9px}.message-content{min-width:0;max-width:calc(100% - 30px)}.user .message-content{padding:8px 10px;border-radius:10px 10px 3px 10px;color:#f9f7f1;background:#536c5b;font-size:10px;line-height:1.55}.assistant .message-content{flex:1;padding:10px 11px;border:1px solid #e3dfd6;border-radius:3px 10px 10px;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 4%)}.assistant.error .message-content{border-color:#e5c6c1;background:#fff4f2}.message-markdown{color:#4d4941;font-size:11px;line-height:1.65;overflow-wrap:anywhere}.message-markdown :deep(p){margin:.4em 0}.message-markdown :deep(p:first-child){margin-top:0}.message-markdown :deep(p:last-child){margin-bottom:0}.message-markdown :deep(ul),.message-markdown :deep(ol){margin:.5em 0;padding-left:1.5em}.message-markdown :deep(code){padding:.1em .3em;border-radius:3px;background:#efebe4;font-family:ui-monospace,monospace;font-size:.9em}.message-actions{display:flex;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid #eeeae2}.message-actions button{padding:4px 7px;border:1px solid #dce3dc;border-radius:5px;color:#45624d;background:#f2f6f2;cursor:pointer;font-size:9px}.message-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.message-sources span{max-width:100%;overflow:hidden;padding:3px 6px;border-radius:4px;color:#66746a;background:#edf1ed;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.typing{display:flex;gap:3px;padding:5px 1px}.typing i{width:5px;height:5px;border-radius:50%;background:#7d8e81;animation:typing 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes typing{50%{opacity:.3;transform:translateY(-2px)}}.ai-composer{flex:0 0 auto;margin:0 10px 10px;padding:8px 9px;border:1px solid #dcd8cf;border-radius:10px;background:#fffefa;box-shadow:0 4px 16px rgb(50 45 36 / 6%)}.ai-composer textarea{width:100%;min-height:39px;resize:none;border:0;outline:0;color:#47433c;background:transparent;font-size:11px;line-height:1.5}.ai-composer>div{display:flex;align-items:center;justify-content:space-between}.ai-composer span{color:#aaa399;font-size:8px}.ai-composer button{display:grid;width:25px;height:25px;place-items:center;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:14px}.ai-composer button:disabled{background:#b9bcb6;cursor:default}.ai-disabled{display:grid;place-content:center;justify-items:center;height:100%;padding:30px;text-align:center}.ai-disabled>div{display:grid;width:55px;height:55px;place-items:center;border-radius:16px;color:#506d58;background:#e5ece6;font-size:23px}.ai-disabled h3{margin:15px 0 0;font-size:15px}.ai-disabled p{margin:8px 0 18px;color:#89837a;font-size:10px;line-height:1.65}.ai-disabled button{padding:8px 13px;border:0;border-radius:8px;color:white;background:#4d6654;cursor:pointer;font-size:10px}
+.ai-panel{display:flex;min-width:0;min-height:0;flex-direction:column;background:#f7f5f0}.ai-header{display:flex;height:62px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #e4e0d7}.ai-header>div{display:flex;align-items:center;gap:9px}.ai-mark{display:grid;width:31px;height:31px;place-items:center;border-radius:9px;color:#f8f4ea;background:linear-gradient(145deg,#5b7863,#354c3c);font-size:14px}.ai-header>div>div{display:flex;flex-direction:column}.ai-header strong{font-size:13px}.ai-header small{margin-top:2px;color:#969086;font-size:9px}.ai-header>button{display:grid;width:28px;height:28px;place-items:center;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:20px}.ai-header>button:hover{background:#ebe7df}.ai-context{display:flex;height:34px;flex:0 0 auto;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #eae6de;color:#827c72}.ai-context span{width:6px;height:6px;border-radius:50%;background:#729079}.ai-context p{min-width:0;overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.ai-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:10px 11px;border-bottom:1px solid #e6e2d9}.ai-actions button{display:flex;height:31px;align-items:center;justify-content:center;gap:5px;border:1px solid #e0dcd3;border-radius:7px;color:#615d55;background:#fffefa;cursor:pointer;font-size:10px}.ai-actions button:hover:not(:disabled){border-color:#bdcbbf;color:#3f6249;background:#f0f5f0}.ai-actions button:disabled{opacity:.45;cursor:default}.ai-actions button span{color:#55705d;font-size:11px}.ai-messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:15px 13px}.ai-messages::-webkit-scrollbar{width:8px}.ai-messages::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#c9c3b8;background-clip:padding-box}.ai-welcome{display:grid;justify-items:center;padding:34px 15px;text-align:center}.ai-welcome>div{display:grid;width:43px;height:43px;place-items:center;margin-bottom:11px;border-radius:13px;color:#52705b;background:#e6eee7;font-size:19px}.ai-welcome h3{margin:0;color:#48443d;font-size:14px}.ai-welcome p{margin:8px 0 17px;color:#8b857c;font-size:10px;line-height:1.6}.ai-welcome button{width:100%;margin-bottom:6px;padding:8px 10px;border:1px solid #e0dcd3;border-radius:7px;color:#69645b;background:#fffefa;cursor:pointer;font-size:10px;text-align:left}.ai-welcome button:hover{border-color:#bdcbbf;color:#3e5f48}.ai-message{display:flex;gap:7px;margin-bottom:14px}.ai-message.user{justify-content:flex-end}.message-avatar{display:grid;width:23px;height:23px;flex:0 0 auto;place-items:center;border-radius:7px;color:#fff;background:#58715f;font-size:9px}.message-content{min-width:0;max-width:calc(100% - 30px)}.user .message-content{padding:8px 10px;border-radius:10px 10px 3px 10px;color:#f9f7f1;background:#536c5b;font-size:10px;line-height:1.55}.assistant .message-content{flex:1;padding:10px 11px;border:1px solid #e3dfd6;border-radius:3px 10px 10px;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 4%)}.assistant.error .message-content{border-color:#e5c6c1;background:#fff4f2}.message-operation{display:flex;align-items:center;gap:5px;margin-bottom:5px;color:var(--accent-strong);font-size:9px;font-weight:700}.message-operation span{color:var(--accent)}.message-markdown{color:#4d4941;font-size:11px;line-height:1.65;overflow-wrap:anywhere}.message-markdown :deep(p){margin:.4em 0}.message-markdown :deep(p:first-child){margin-top:0}.message-markdown :deep(p:last-child){margin-bottom:0}.message-markdown :deep(ul),.message-markdown :deep(ol){margin:.5em 0;padding-left:1.5em}.message-markdown :deep(code){padding:.1em .3em;border-radius:3px;background:#efebe4;font-family:ui-monospace,monospace;font-size:.9em}.message-actions{display:flex;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid #eeeae2}.message-actions button{padding:4px 7px;border:1px solid #dce3dc;border-radius:5px;color:#45624d;background:#f2f6f2;cursor:pointer;font-size:9px}.message-actions button:disabled{cursor:default;opacity:.55}.message-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.message-sources span{max-width:100%;overflow:hidden;padding:3px 6px;border-radius:4px;color:#66746a;background:#edf1ed;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.typing{display:flex;gap:3px;padding:5px 1px}.typing i{width:5px;height:5px;border-radius:50%;background:#7d8e81;animation:typing 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes typing{50%{opacity:.3;transform:translateY(-2px)}}.ai-composer{flex:0 0 auto;margin:0 10px 10px;padding:8px 9px;border:1px solid #dcd8cf;border-radius:10px;background:#fffefa;box-shadow:0 4px 16px rgb(50 45 36 / 6%)}.ai-composer textarea{width:100%;min-height:39px;resize:none;border:0;outline:0;color:#47433c;background:transparent;font-size:11px;line-height:1.5}.ai-composer>div{display:flex;align-items:center;justify-content:space-between}.ai-composer span{color:#aaa399;font-size:8px}.ai-composer button{display:grid;width:25px;height:25px;place-items:center;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:14px}.ai-composer button:disabled{background:#b9bcb6;cursor:default}.ai-disabled{display:grid;place-content:center;justify-items:center;height:100%;padding:30px;text-align:center}.ai-disabled>div{display:grid;width:55px;height:55px;place-items:center;border-radius:16px;color:#506d58;background:#e5ece6;font-size:23px}.ai-disabled h3{margin:15px 0 0;font-size:15px}.ai-disabled p{margin:8px 0 18px;color:#89837a;font-size:10px;line-height:1.65}.ai-disabled button{padding:8px 13px;border:0;border-radius:8px;color:white;background:#4d6654;cursor:pointer;font-size:10px}
 
 .ai-actions button.featured{grid-column:1/-1;color:#fff;border-color:#506c58;background:#506c58}
 .ai-actions button.featured:hover:not(:disabled){color:#fff;border-color:#3f5b48;background:#435f4c}

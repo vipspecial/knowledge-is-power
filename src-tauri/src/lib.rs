@@ -12,6 +12,13 @@ use settings::{clear_ai_api_key, load_settings, save_settings};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_store,
             save_store,
@@ -25,5 +32,5 @@ pub fn run() {
             test_ai_connection
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run Mojian Notes");
+        .expect("failed to run Orange Run Notes");
 }

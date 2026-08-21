@@ -41,14 +41,12 @@ pub(crate) struct NotesStore {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct GeneralSettings {
     pub(crate) auto_save_delay_ms: u64,
-    pub(crate) default_editor_mode: String,
 }
 
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             auto_save_delay_ms: 450,
-            default_editor_mode: "split".to_string(),
         }
     }
 }

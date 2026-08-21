@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { invoke } from "@tauri-apps/api/core";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createDocumentAiRequest, streamAi } from "./ai";
@@ -9,6 +7,7 @@ import AiWritingDialog from "./components/AiWritingDialog.vue";
 import AppContextMenu from "./components/AppContextMenu.vue";
 import KnowledgeRail from "./components/KnowledgeRail.vue";
 import NoteListPane from "./components/NoteListPane.vue";
+import RichTextEditor from "./components/RichTextEditor.vue";
 import SettingsDialog from "./components/SettingsDialog.vue";
 import TrashPane from "./components/TrashPane.vue";
 import {
@@ -18,10 +17,12 @@ import {
   saveAppSettings,
 } from "./settings";
 import { loadStore, saveStore } from "./storage";
+import { checkForAppUpdate, updaterAvailable } from "./updater";
 import type {
   AppSettings,
+  AiApplyPayload,
   AiOperation,
-  EditorMode,
+  AiPanelTask,
   KnowledgeBase,
   Note,
   NoteListMode,
@@ -41,7 +42,6 @@ const selectedId = ref<string | null>(null);
 const searchQuery = ref("");
 const isLoading = ref(true);
 const saveState = ref<SaveState>("idle");
-const editorMode = ref<EditorMode>("split");
 const errorMessage = ref("");
 const toastMessage = ref("");
 const showDeleteDialog = ref(false);
@@ -59,31 +59,22 @@ const activeNavigation = ref<"library" | "trash">("library");
 const noteListMode = ref<NoteListMode>(localStorage.getItem("orange-run-note-list-mode") === "outline" ? "outline" : "cards");
 const collapsedNoteIds = ref<Set<string>>(new Set());
 const documentMenuOpen = ref(false);
-const formatMenuOpen = ref(false);
 const editorAiMenuOpen = ref(false);
-const selectionAiMenuOpen = ref(false);
 const selectedText = ref("");
 const selectionRange = ref({ start: 0, end: 0 });
 const knowledgeBaseDialog = ref<"create" | "rename" | "delete" | null>(null);
 const knowledgeBaseName = ref("");
 const titleInput = ref<HTMLInputElement | null>(null);
-const contentInput = ref<HTMLTextAreaElement | null>(null);
-const previewInput = ref<HTMLElement | null>(null);
-const writingAreaInput = ref<HTMLElement | null>(null);
+const aiPanel = ref<InstanceType<typeof AiPanel> | null>(null);
+const richTextEditor = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const sidebarWidth = ref(clamp(readStoredNumber("orange-run-sidebar-width-v3", 264), 220, 380));
 const aiPanelWidth = ref(clamp(readStoredNumber("orange-run-ai-panel-width-v2", 330), 300, 480));
-const editorSplitPercent = ref(clamp(readStoredNumber("orange-run-editor-split-v2", 50), 30, 70));
-const contextualAiBusy = ref<AiOperation | null>(null);
-const contextualAiOutput = ref("");
-const contextualAiError = ref("");
-const contextualAiLabel = ref("");
-const contextualAiTarget = ref<"selection" | "append" | "document">("selection");
-const contextualAiSourceDocumentId = ref("");
-const contextualAiRange = ref({ start: 0, end: 0 });
 const metadataAiBusy = ref<"title" | "tags" | null>(null);
 const contextMenu = ref<ContextMenuState | null>(null);
+const isMacOsDesktop =
+  "__TAURI_INTERNALS__" in window && /Macintosh|Mac OS X/.test(navigator.userAgent);
 
-type ResizeTarget = "sidebar" | "ai" | "editorSplit";
+type ResizeTarget = "sidebar" | "ai";
 type ContextMenuKind = "knowledgeBase" | "note" | "trash";
 
 interface ContextMenuState {
@@ -106,17 +97,13 @@ interface ResizeState {
   target: ResizeTarget;
   startX: number;
   startValue: number;
-  splitLeft: number;
-  splitWidth: number;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let hydrated = false;
-let scrollSyncOwner: "editor" | "preview" | null = null;
-let scrollSyncTimer: ReturnType<typeof setTimeout> | undefined;
+let updateCheckTimer: ReturnType<typeof setTimeout> | undefined;
 let resizeState: ResizeState | null = null;
-let contextualAiVersion = 0;
 let metadataAiVersion = 0;
 
 const layoutStyle = computed(() => ({
@@ -162,9 +149,7 @@ function toggleNoteBranch(id: string): void {
 
 function closeMenus(): void {
   documentMenuOpen.value = false;
-  formatMenuOpen.value = false;
   editorAiMenuOpen.value = false;
-  selectionAiMenuOpen.value = false;
   contextMenu.value = null;
 }
 
@@ -198,32 +183,19 @@ function openTrashContextMenu(id: string, event: MouseEvent): void {
 function handleAppContextMenu(event: MouseEvent): void {
   const target = event.target instanceof Element ? event.target : null;
   const editable = target?.closest("input, textarea, [contenteditable='true']");
-  const preview = target?.closest(".markdown-preview");
-  const selectedPreviewText = preview && window.getSelection()?.toString().trim();
-  const previewLink = preview && target?.closest("a");
 
   closeMenus();
-  if (!editable && !selectedPreviewText && !previewLink) event.preventDefault();
+  if (!editable) event.preventDefault();
 }
 
-function toggleMenu(menu: "document" | "format" | "editorAi" | "selectionAi"): void {
+function toggleMenu(menu: "document" | "editorAi"): void {
   const next = menu === "document"
       ? !documentMenuOpen.value
-      : menu === "format"
-        ? !formatMenuOpen.value
-        : menu === "editorAi"
-          ? !editorAiMenuOpen.value
-          : !selectionAiMenuOpen.value;
+      : !editorAiMenuOpen.value;
   closeMenus();
   if (menu === "document") documentMenuOpen.value = next;
-  else if (menu === "format") formatMenuOpen.value = next;
-  else if (menu === "editorAi") editorAiMenuOpen.value = next;
-  else selectionAiMenuOpen.value = next;
+  else editorAiMenuOpen.value = next;
 }
-
-const writingAreaStyle = computed(() => ({
-  "--editor-split": `${editorSplitPercent.value}%`,
-}));
 
 function readStoredNumber(key: string, fallback: number): number {
   const value = Number(localStorage.getItem(key));
@@ -249,22 +221,14 @@ function maximumAiPanelWidth(): number {
 function persistPanelWidths(): void {
   localStorage.setItem("orange-run-sidebar-width-v3", String(Math.round(sidebarWidth.value)));
   localStorage.setItem("orange-run-ai-panel-width-v2", String(Math.round(aiPanelWidth.value)));
-  localStorage.setItem("orange-run-editor-split-v2", String(Math.round(editorSplitPercent.value)));
 }
 
 function startPanelResize(target: ResizeTarget, event: PointerEvent): void {
   event.preventDefault();
-  const splitRect = writingAreaInput.value?.getBoundingClientRect();
   resizeState = {
     target,
     startX: event.clientX,
-    startValue: target === "sidebar"
-      ? sidebarWidth.value
-      : target === "ai"
-        ? aiPanelWidth.value
-        : editorSplitPercent.value,
-    splitLeft: splitRect?.left ?? 0,
-    splitWidth: splitRect?.width ?? 1,
+    startValue: target === "sidebar" ? sidebarWidth.value : aiPanelWidth.value,
   };
   document.body.classList.add("panel-resizing");
   window.addEventListener("pointermove", handlePanelResize);
@@ -279,17 +243,11 @@ function handlePanelResize(event: PointerEvent): void {
       220,
       maximumSidebarWidth(),
     );
-  } else if (resizeState.target === "ai") {
+  } else {
     aiPanelWidth.value = clamp(
       resizeState.startValue - (event.clientX - resizeState.startX),
       300,
       maximumAiPanelWidth(),
-    );
-  } else {
-    editorSplitPercent.value = clamp(
-      ((event.clientX - resizeState.splitLeft) / resizeState.splitWidth) * 100,
-      30,
-      70,
     );
   }
 }
@@ -304,10 +262,8 @@ function stopPanelResize(): void {
 function nudgePanel(target: ResizeTarget, amount: number): void {
   if (target === "sidebar") {
     sidebarWidth.value = clamp(sidebarWidth.value + amount, 220, maximumSidebarWidth());
-  } else if (target === "ai") {
-    aiPanelWidth.value = clamp(aiPanelWidth.value + amount, 300, maximumAiPanelWidth());
   } else {
-    editorSplitPercent.value = clamp(editorSplitPercent.value + amount, 30, 70);
+    aiPanelWidth.value = clamp(aiPanelWidth.value + amount, 300, maximumAiPanelWidth());
   }
   persistPanelWidths();
 }
@@ -382,20 +338,6 @@ const trashedNotes = computed(() =>
 
 const characterCount = computed(() => selectedNote.value?.content.trim().length ?? 0);
 const shortcutPrefix = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
-
-const renderedMarkdown = computed(() => {
-  const source = selectedNote.value?.content.trim() ?? "";
-  if (!source) return "";
-  const html = marked.parse(source, { breaks: true, gfm: true, async: false });
-  const safeHtml = DOMPurify.sanitize(html);
-  return safeHtml.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
-});
-
-const renderedContextualAi = computed(() => {
-  if (!contextualAiOutput.value) return "";
-  const html = marked.parse(contextualAiOutput.value, { breaks: true, gfm: true, async: false });
-  return DOMPurify.sanitize(html);
-});
 
 function createId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -500,7 +442,6 @@ function addNote(parentId: string | null = null): void {
   }
   selectedId.value = note.id;
   searchQuery.value = "";
-  editorMode.value = settings.value.general.defaultEditorMode;
   nextTick(() => titleInput.value?.select());
 }
 
@@ -664,22 +605,23 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => (toastMessage.value = ""), 2400);
 }
 
+async function checkUpdatesQuietly(): Promise<void> {
+  try {
+    const update = await checkForAppUpdate();
+    if (update) showToast(`发现新版本 ${update.version}，可在“设置 → 关于”中更新`);
+  } catch {
+    // Startup checks stay quiet; the About page shows actionable errors on demand.
+  }
+}
+
 function openSettings(tab: "general" | "ai" | "storage" | "about" = "general"): void {
   settingsInitialTab.value = tab;
   showSettingsDialog.value = true;
 }
 
-function updateSelection(): void {
-  const textarea = contentInput.value;
-  if (!textarea || !selectedNote.value) return;
-  selectionRange.value = {
-    start: textarea.selectionStart,
-    end: textarea.selectionEnd,
-  };
-  selectedText.value = selectedNote.value.content.slice(
-    textarea.selectionStart,
-    textarea.selectionEnd,
-  );
+function updateSelection(selection: { text: string; from: number; to: number }): void {
+  selectedText.value = selection.text;
+  selectionRange.value = { start: selection.from, end: selection.to };
 }
 
 function ensureAiReady(): boolean {
@@ -689,87 +631,77 @@ function ensureAiReady(): boolean {
   return false;
 }
 
-function clearContextualAi(): void {
-  contextualAiVersion += 1;
-  contextualAiBusy.value = null;
-  contextualAiOutput.value = "";
-  contextualAiError.value = "";
-  contextualAiLabel.value = "";
-  contextualAiSourceDocumentId.value = "";
-}
-
-async function runContextualAi(
+function runContextualAi(
   operation: AiOperation,
   label: string,
   target: "selection" | "append" | "document",
   prompt = "",
-): Promise<void> {
+): void {
   const note = selectedNote.value;
-  if (!note || contextualAiBusy.value || !ensureAiReady()) return;
+  if (!note || !ensureAiReady()) return;
   if (target === "selection" && !selectedText.value.trim()) {
     showToast("请先选择要处理的文字");
     return;
   }
 
-  const sourceDocumentId = note.id;
-  const version = ++contextualAiVersion;
-  contextualAiSourceDocumentId.value = sourceDocumentId;
-  contextualAiRange.value = { ...selectionRange.value };
-  contextualAiTarget.value = target;
-  contextualAiLabel.value = label;
-  contextualAiOutput.value = "";
-  contextualAiError.value = "";
-  contextualAiBusy.value = operation;
-  const selection = target === "selection" ? selectedText.value : "";
-  const request = createDocumentAiRequest(note, operation, prompt, selection);
-  let streamError = "";
-
-  try {
-    await streamAi(request, (event) => {
-      if (version !== contextualAiVersion || selectedId.value !== sourceDocumentId) return;
-      if (event.event === "delta") contextualAiOutput.value += event.content;
-      if (event.event === "error") streamError = event.message;
-    });
-    if (version !== contextualAiVersion || selectedId.value !== sourceDocumentId) return;
-    if (streamError) contextualAiError.value = streamError;
-    if (!contextualAiOutput.value.trim() && !streamError) {
-      contextualAiError.value = "模型没有返回内容";
-    }
-  } catch (error) {
-    if (version === contextualAiVersion) contextualAiError.value = String(error);
-  } finally {
-    if (version === contextualAiVersion) contextualAiBusy.value = null;
-  }
+  const task: AiPanelTask = {
+    id: createId(),
+    document: { ...note, tags: [...note.tags] },
+    operation,
+    label,
+    prompt,
+    selection: target === "selection" ? selectedText.value : "",
+    target,
+    range: target === "selection"
+      ? { from: selectionRange.value.start, to: selectionRange.value.end }
+      : undefined,
+  };
+  aiPanelOpen.value = true;
+  // All contextual entries share one queue. Waiting for the panel render also
+  // prevents the first task from being lost when the action opens the panel.
+  void nextTick(() => aiPanel.value?.acceptTask(task));
 }
 
-function applyContextualAi(): void {
+function handleSelectionAi(action: {
+  operation: AiOperation;
+  label: string;
+  prompt: string;
+  text: string;
+  from: number;
+  to: number;
+}): void {
+  updateSelection({ text: action.text, from: action.from, to: action.to });
+  runContextualAi(action.operation, action.label, "selection", action.prompt);
+}
+
+function applyAiPanelResult(payload: AiApplyPayload): void {
   const note = selectedNote.value;
-  if (
-    !note ||
-    note.id !== contextualAiSourceDocumentId.value ||
-    !contextualAiOutput.value.trim()
-  ) {
-    showToast("当前文章已切换，未应用 AI 结果");
-    clearContextualAi();
+  if (!note || note.id !== payload.documentId) {
+    showToast("请切换回对应文章后再应用结果");
     return;
   }
-  const content = contextualAiOutput.value.trim();
-  if (contextualAiTarget.value === "selection") {
-    const { start, end } = contextualAiRange.value;
-    note.content = `${note.content.slice(0, start)}${content}${note.content.slice(end)}`;
+  const currentEditor = richTextEditor.value;
+  if (!currentEditor) {
+    showToast("编辑器尚未就绪，请稍后重试");
+    return;
+  }
+  if (payload.target === "selection" && payload.range) {
+    currentEditor.replaceRange(payload.range.from, payload.range.to, payload.content);
     showToast("已替换原选区");
-  } else if (contextualAiTarget.value === "document") {
-    note.content = content;
+  } else if (payload.target === "document") {
+    currentEditor.replaceDocument(payload.content);
     showToast("已替换当前文章正文");
-  } else {
-    const prefix = note.content.trim() ? "\n\n" : "";
-    note.content = `${note.content}${prefix}${content}`;
+  } else if (payload.target === "append") {
+    currentEditor.appendMarkdown(payload.content);
     showToast("已追加到当前文章");
+  } else {
+    const position = selectionRange.value.end;
+    if (position > 0) currentEditor.replaceRange(position, position, payload.content);
+    else currentEditor.appendMarkdown(payload.content);
+    showToast("AI 内容已插入正文");
   }
   selectedText.value = "";
   selectionRange.value = { start: 0, end: 0 };
-  markEdited();
-  clearContextualAi();
 }
 
 function parseAiTags(content: string): string[] {
@@ -815,30 +747,15 @@ async function generateMetadata(operation: "title" | "tags"): Promise<void> {
 }
 
 function appendDocumentAiContent(content: string): void {
-  const note = selectedNote.value;
-  if (!note) return;
-  const prefix = note.content.trim() ? "\n\n" : "";
-  note.content = `${note.content}${prefix}${content.trim()}`;
-  markEdited();
+  if (!selectedNote.value || !richTextEditor.value) return;
+  richTextEditor.value.appendMarkdown(content.trim());
   showToast("AI 草稿已追加到当前文章");
 }
 
 function replaceDocumentAiContent(content: string): void {
-  if (!selectedNote.value) return;
-  selectedNote.value.content = content.trim();
-  markEdited();
+  if (!selectedNote.value || !richTextEditor.value) return;
+  richTextEditor.value.replaceDocument(content.trim());
   showToast("当前文章正文已更新");
-}
-
-function insertAiContent(content: string): void {
-  const note = selectedNote.value;
-  if (!note) return;
-  const { start, end } = selectionRange.value;
-  const position = Math.min(end || note.content.length, note.content.length);
-  const prefix = position > 0 && !note.content.slice(0, position).endsWith("\n") ? "\n\n" : "";
-  note.content = `${note.content.slice(0, position)}${prefix}${content}${note.content.slice(position)}`;
-  markEdited();
-  showToast("AI 内容已插入笔记");
 }
 
 function applyAiTags(tags: string[]): void {
@@ -889,7 +806,6 @@ async function importMarkdown(): Promise<void> {
     const note = makeNote(imported.title, imported.content);
     notes.value.push(note);
     selectedId.value = note.id;
-    editorMode.value = settings.value.general.defaultEditorMode;
     showToast("Markdown 已导入");
   } catch (error) {
     showToast(`导入失败：${String(error)}`);
@@ -906,71 +822,6 @@ async function exportMarkdown(): Promise<void> {
     if (path) showToast("Markdown 已导出");
   } catch (error) {
     showToast(`导出失败：${String(error)}`);
-  }
-}
-
-function wrapSelection(before: string, after = before, placeholder = "文本"): void {
-  const textarea = contentInput.value;
-  const note = selectedNote.value;
-  if (!textarea || !note) return;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const selected = note.content.slice(start, end) || placeholder;
-  note.content = `${note.content.slice(0, start)}${before}${selected}${after}${note.content.slice(end)}`;
-  markEdited();
-  nextTick(() => {
-    textarea.focus();
-    textarea.setSelectionRange(start + before.length, start + before.length + selected.length);
-  });
-}
-
-function prefixLines(prefix: string, placeholder = "列表项"): void {
-  const textarea = contentInput.value;
-  const note = selectedNote.value;
-  if (!textarea || !note) return;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const lineStart = note.content.lastIndexOf("\n", start - 1) + 1;
-  const selected = note.content.slice(lineStart, end) || placeholder;
-  const replacement = selected.split("\n").map((line) => `${prefix}${line}`).join("\n");
-  note.content = `${note.content.slice(0, lineStart)}${replacement}${note.content.slice(end)}`;
-  markEdited();
-  nextTick(() => textarea.focus());
-}
-
-function claimScrollSync(owner: "editor" | "preview"): void {
-  scrollSyncOwner = owner;
-  window.clearTimeout(scrollSyncTimer);
-}
-
-function syncScroll(
-  owner: "editor" | "preview",
-  source: HTMLElement,
-  target: HTMLElement,
-): void {
-  if (editorMode.value !== "split") return;
-  if (scrollSyncOwner && scrollSyncOwner !== owner) return;
-  scrollSyncOwner = owner;
-  window.clearTimeout(scrollSyncTimer);
-  const sourceRange = source.scrollHeight - source.clientHeight;
-  const targetRange = target.scrollHeight - target.clientHeight;
-  if (sourceRange > 0 && targetRange > 0) {
-    target.scrollTop = (source.scrollTop / sourceRange) * targetRange;
-  }
-  scrollSyncTimer = window.setTimeout(() => {
-    scrollSyncOwner = null;
-  }, 120);
-}
-
-function syncFromEditor(): void {
-  if (contentInput.value && previewInput.value) {
-    syncScroll("editor", contentInput.value, previewInput.value);
-  }
-}
-
-function syncFromPreview(): void {
-  if (previewInput.value && contentInput.value) {
-    syncScroll("preview", previewInput.value, contentInput.value);
   }
 }
 
@@ -1017,7 +868,6 @@ function handleKeydown(event: KeyboardEvent): void {
     knowledgeBaseDialog.value = null;
     showSettingsDialog.value = false;
     showAiWritingDialog.value = false;
-    clearContextualAi();
   }
 }
 
@@ -1039,7 +889,6 @@ watch(selectedId, () => {
   metadataAiVersion += 1;
   metadataAiBusy.value = null;
   showAiWritingDialog.value = false;
-  clearContextualAi();
   selectedText.value = "";
   selectionRange.value = { start: 0, end: 0 };
 });
@@ -1059,7 +908,6 @@ onMounted(async () => {
     const settingsView = await loadAppSettings();
     settings.value = settingsView.settings;
     hasApiKey.value = settingsView.hasApiKey;
-    editorMode.value = settings.value.general.defaultEditorMode;
 
     const store = await loadStore();
     knowledgeBases.value = store.knowledgeBases;
@@ -1084,10 +932,10 @@ onMounted(async () => {
       notes.value = [
         makeNote(
           "欢迎使用",
-          "## 从这里开始\n\n这是一款本地优先的 **Markdown + AI** 笔记应用。\n\n- 最左侧切换知识库，中间列表管理文档与子文档\n- 每篇笔记都保存为指定目录中的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + F` 搜索，`⌘/Ctrl + J` 打开 AI 写作\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
+          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + F` 搜索，`⌘/Ctrl + J` 打开 AI 写作\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
         ),
       ];
-      notes.value[0].tags = ["开始", "Markdown"];
+      notes.value[0].tags = ["开始", "AI"];
     }
     selectedId.value = sortedNotes.value[0]?.id ?? null;
     hydrated = true;
@@ -1097,6 +945,9 @@ onMounted(async () => {
     saveState.value = "error";
   } finally {
     isLoading.value = false;
+    if (updaterAvailable()) {
+      updateCheckTimer = window.setTimeout(() => void checkUpdatesQuietly(), 3_000);
+    }
   }
 });
 
@@ -1108,7 +959,7 @@ onBeforeUnmount(() => {
   document.body.classList.remove("panel-resizing");
   window.clearTimeout(saveTimer);
   window.clearTimeout(toastTimer);
-  window.clearTimeout(scrollSyncTimer);
+  window.clearTimeout(updateCheckTimer);
 });
 </script>
 
@@ -1120,11 +971,19 @@ onBeforeUnmount(() => {
       'sidebar-collapsed': sidebarCollapsed,
       'library-collapsed': libraryRailCollapsed,
       'trash-visible': activeNavigation === 'trash',
+      'macos-titlebar': isMacOsDesktop,
     }"
     :style="layoutStyle"
     @contextmenu="handleAppContextMenu"
     @scroll.capture="contextMenu = null"
   >
+    <header
+      v-if="isMacOsDesktop"
+      class="app-titlebar"
+      data-tauri-drag-region
+      aria-label="窗口标题栏"
+    ></header>
+
     <KnowledgeRail
       v-if="!libraryRailCollapsed"
       :knowledge-bases="knowledgeBases"
@@ -1232,12 +1091,6 @@ onBeforeUnmount(() => {
           >
             <span>✦</span>AI
           </button>
-          <div class="mode-switch" aria-label="编辑视图">
-            <button :class="{ active: editorMode === 'edit' }" type="button" @click="editorMode = 'edit'">编辑</button>
-            <button :class="{ active: editorMode === 'split' }" type="button" @click="editorMode = 'split'">分栏</button>
-            <button :class="{ active: editorMode === 'preview' }" type="button" @click="editorMode = 'preview'">预览</button>
-          </div>
-          <span v-if="editorMode === 'split'" class="sync-indicator" title="编辑与预览双向同步滚动">⇅ 同步</span>
           <button class="icon-button" :class="{ selected: selectedNote.pinned }" type="button" title="置顶笔记" aria-label="置顶笔记" @click="togglePin">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 4 6 0-1 5 3 3v2H7v-2l3-3-1-5Zm3 10v6" /></svg>
           </button>
@@ -1281,117 +1134,30 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div v-if="selectedText && editorMode !== 'preview'" class="selection-ai-bar">
-          <span class="selection-ai-context">已选 {{ selectedText.length }} 字</span>
-          <span class="selection-ai-divider"></span>
-          <button type="button" :disabled="contextualAiBusy !== null" @click="runContextualAi('polish', '润色选区', 'selection')">✦ 润色</button>
-          <button type="button" :disabled="contextualAiBusy !== null" @click="runContextualAi('translate', '翻译选区', 'selection')">翻译</button>
-          <div class="popup-menu-wrap" @click.stop>
-            <button type="button" :disabled="contextualAiBusy !== null" @click="toggleMenu('selectionAi')">更多⌄</button>
-            <div v-if="selectionAiMenuOpen" class="popup-menu selection-ai-popup" role="menu">
-              <button type="button" role="menuitem" @click="runContextualAi('shorten', '精简选区', 'selection'); closeMenus()">精简表达</button>
-              <button type="button" role="menuitem" @click="runContextualAi('expand', '扩写选区', 'selection'); closeMenus()">扩写内容</button>
-              <button type="button" role="menuitem" @click="runContextualAi('explain', '解释选区', 'selection'); closeMenus()">解释这段内容</button>
-              <button type="button" role="menuitem" @click="runContextualAi('todos', '提取选区行动项', 'selection'); closeMenus()">提取行动项</button>
-              <span></span>
-              <button type="button" role="menuitem" @click="runContextualAi('polish', '改为专业表达', 'selection', '改为专业、准确、克制的表达，保留原意。'); closeMenus()">改为专业表达</button>
-              <button type="button" role="menuitem" @click="runContextualAi('polish', '改为自然口语', 'selection', '改为自然、简洁、易懂的口语表达，保留原意。'); closeMenus()">改为自然口语</button>
-            </div>
-          </div>
-          <small>仅处理当前选区</small>
-        </div>
-
-        <section v-if="contextualAiLabel" class="contextual-ai-result" aria-live="polite">
-          <header>
-            <div><span>✦</span><strong>{{ contextualAiLabel }}</strong><small>仅当前文章</small></div>
-            <button type="button" aria-label="关闭 AI 结果" @click="clearContextualAi">×</button>
-          </header>
-          <div v-if="contextualAiOutput" class="contextual-ai-markdown" v-html="renderedContextualAi"></div>
-          <div v-else-if="contextualAiBusy" class="contextual-ai-loading"><i></i><i></i><i></i><span>正在流式生成…</span></div>
-          <p v-if="contextualAiError" class="contextual-ai-error">{{ contextualAiError }}</p>
-          <footer v-if="contextualAiOutput && !contextualAiBusy">
-            <button type="button" class="secondary-button" @click="clearContextualAi">放弃</button>
-            <button type="button" class="primary-button" @click="applyContextualAi">
-              {{ contextualAiTarget === 'selection' ? '替换选区' : contextualAiTarget === 'document' ? '替换全文' : '追加到正文' }}
-            </button>
-          </footer>
-        </section>
-
-        <div v-if="editorMode !== 'preview'" class="markdown-toolbar" aria-label="Markdown 格式工具栏">
-          <button type="button" title="二级标题" @click="prefixLines('## ', '标题')">H2</button>
-          <button type="button" title="粗体" @click="wrapSelection('**')"><strong>B</strong></button>
-          <button type="button" title="斜体" @click="wrapSelection('_')"><em>I</em></button>
-          <span class="toolbar-divider"></span>
-          <button type="button" title="无序列表" @click="prefixLines('- ')">• 列表</button>
-          <div class="popup-menu-wrap format-menu-wrap" @click.stop>
-            <button type="button" title="更多 Markdown 格式" @click="toggleMenu('format')">更多⌄</button>
-            <div v-if="formatMenuOpen" class="popup-menu format-popup" role="menu">
-              <button type="button" role="menuitem" @click="prefixLines('- [ ] '); closeMenus()">任务清单</button>
-              <button type="button" role="menuitem" @click="prefixLines('> ', '引用内容'); closeMenus()">引用</button>
-              <button type="button" role="menuitem" @click="wrapSelection('`', '`', '代码'); closeMenus()">行内代码</button>
-              <button type="button" role="menuitem" @click="wrapSelection('[', '](https://)', '链接文字'); closeMenus()">链接</button>
-            </div>
-          </div>
-          <div class="markdown-ai-tools">
-            <button type="button" :disabled="contextualAiBusy !== null" title="从当前文章结尾继续写" @click="runContextualAi('continue', '续写当前文章', 'append')"><span>✦</span>续写</button>
-            <button type="button" title="打开 AI 写作工作台" @click="showAiWritingDialog = true"><span>✦</span>写作</button>
-            <div class="popup-menu-wrap" @click.stop>
-              <button type="button" title="更多 AI 工具" @click="toggleMenu('editorAi')">AI⌄</button>
-              <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">
-                <button type="button" role="menuitem" @click="runContextualAi('proofread', '校对当前文章', 'document'); closeMenus()">全文校对</button>
-                <button type="button" role="menuitem" @click="runContextualAi('outline', '生成文章大纲', 'append'); closeMenus()">生成大纲</button>
-                <button type="button" role="menuitem" @click="runContextualAi('summarize', '总结当前文章', 'append'); closeMenus()">生成摘要</button>
-                <button type="button" role="menuitem" @click="runContextualAi('todos', '提取行动项', 'append'); closeMenus()">提取行动项</button>
+        <RichTextEditor
+          ref="richTextEditor"
+          v-model="selectedNote.content"
+          :document-id="selectedNote.id"
+          @change="markEdited"
+          @selection-change="updateSelection"
+          @selection-ai="handleSelectionAi"
+        >
+          <template #actions>
+            <div class="markdown-ai-tools">
+              <button type="button" title="从当前文章结尾继续写" @click="runContextualAi('continue', '续写当前文章', 'append')"><span>✦</span>续写</button>
+              <button type="button" title="打开 AI 写作工作台" @click="showAiWritingDialog = true"><span>✦</span>写作</button>
+              <div class="popup-menu-wrap" @click.stop>
+                <button type="button" title="更多 AI 工具" @click="toggleMenu('editorAi')">AI⌄</button>
+                <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">
+                  <button type="button" role="menuitem" @click="runContextualAi('proofread', '校对当前文章', 'document'); closeMenus()">全文校对</button>
+                  <button type="button" role="menuitem" @click="runContextualAi('outline', '生成文章大纲', 'append'); closeMenus()">生成大纲</button>
+                  <button type="button" role="menuitem" @click="runContextualAi('summarize', '总结当前文章', 'append'); closeMenus()">生成摘要</button>
+                  <button type="button" role="menuitem" @click="runContextualAi('todos', '提取行动项', 'append'); closeMenus()">提取行动项</button>
+                </div>
               </div>
             </div>
-          </div>
-          <span class="markdown-hint">Markdown</span>
-        </div>
-
-        <div ref="writingAreaInput" class="writing-area" :class="`mode-${editorMode}`" :style="writingAreaStyle">
-          <textarea
-            v-if="editorMode !== 'preview'"
-            ref="contentInput"
-            v-model="selectedNote.content"
-            class="content-input"
-            placeholder="用 Markdown 写下此刻…"
-            aria-label="Markdown 笔记正文"
-            spellcheck="true"
-            @input="markEdited"
-            @select="updateSelection"
-            @mouseup="updateSelection"
-            @keyup="updateSelection"
-            @pointerenter="claimScrollSync('editor')"
-            @wheel.passive="claimScrollSync('editor')"
-            @scroll="syncFromEditor"
-          ></textarea>
-
-          <div
-            v-if="editorMode === 'split'"
-            class="editor-split-resizer"
-            role="separator"
-            aria-label="调整编辑与预览宽度"
-            aria-orientation="vertical"
-            :aria-valuenow="Math.round(editorSplitPercent)"
-            tabindex="0"
-            @pointerdown="startPanelResize('editorSplit', $event)"
-            @keydown.left.prevent="nudgePanel('editorSplit', -2)"
-            @keydown.right.prevent="nudgePanel('editorSplit', 2)"
-          ></div>
-
-          <section
-            v-if="editorMode !== 'edit'"
-            ref="previewInput"
-            class="markdown-preview"
-            aria-label="Markdown 预览"
-            @pointerenter="claimScrollSync('preview')"
-            @wheel.passive="claimScrollSync('preview')"
-            @scroll="syncFromPreview"
-          >
-            <div v-if="renderedMarkdown" class="markdown-body" v-html="renderedMarkdown"></div>
-            <div v-else class="preview-placeholder">Markdown 预览会显示在这里</div>
-          </section>
-        </div>
+          </template>
+        </RichTextEditor>
       </article>
 
       <div v-if="errorMessage" class="error-banner" role="alert">保存失败：{{ errorMessage }}</div>
@@ -1425,13 +1191,13 @@ onBeforeUnmount(() => {
     ></div>
 
     <AiPanel
-      v-if="aiPanelOpen"
-      :key="selectedNote?.id ?? 'no-document'"
+      ref="aiPanel"
+      v-show="aiPanelOpen"
       :enabled="settings.ai.enabled"
       :note="selectedNote"
       @close="aiPanelOpen = false"
       @open-settings="openSettings('ai')"
-      @insert="insertAiContent"
+      @apply="applyAiPanelResult"
     />
 
     <AiWritingDialog

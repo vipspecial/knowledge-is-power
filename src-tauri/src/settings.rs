@@ -132,12 +132,6 @@ pub(crate) fn save_app_settings(
     if !(300..=10_000).contains(&settings.general.auto_save_delay_ms) {
         return Err("自动保存等待时间必须在 300 到 10,000 毫秒之间".to_string());
     }
-    if !matches!(
-        settings.general.default_editor_mode.as_str(),
-        "edit" | "split" | "preview"
-    ) {
-        return Err("默认编辑视图无效".to_string());
-    }
     if settings.document_directory.trim().is_empty() {
         return Err("文档目录不能为空".to_string());
     }

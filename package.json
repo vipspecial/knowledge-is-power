@@ -1,7 +1,7 @@
 {
   "name": "orange-run-notes",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.6.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -9,13 +9,24 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:mac": "tauri build --bundles dmg",
-    "build:windows": "tauri build --bundles nsis",
-    "build:linux": "tauri build --bundles deb,appimage",
+    "build:mac": "tauri build --bundles dmg --config src-tauri/tauri.local.conf.json",
+    "build:windows": "tauri build --bundles nsis --config src-tauri/tauri.local.conf.json",
+    "build:linux": "tauri build --bundles deb,appimage --config src-tauri/tauri.local.conf.json",
+    "check:version": "node scripts/check-version.mjs",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@tiptap/extension-highlight": "^3.30.2",
+    "@tiptap/extension-placeholder": "^3.30.2",
+    "@tiptap/extension-table": "^3.30.2",
+    "@tiptap/extension-task-item": "^3.30.2",
+    "@tiptap/extension-task-list": "^3.30.2",
+    "@tiptap/markdown": "^3.30.2",
+    "@tiptap/starter-kit": "^3.30.2",
+    "@tiptap/vue-3": "^3.30.2",
     "dompurify": "^3.2.0",
     "marked": "^16.0.0",
     "vue": "^3.5.0"
