@@ -20,3 +20,7 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY < updater.key
 4. GitHub Actions 自动构建各平台安装包、签名更新包和 `latest.json`。
 
 发布成功后，已安装应用会从仓库的最新 Release 获取更新。
+
+## 排查更新检查失败
+
+打开最新 Release 的附件列表，确认同时存在 `latest.json`、各平台更新压缩包及对应 `.sig` 文件。若最新 Release 是旧流程生成且没有 `latest.json`，发布一个与当前代码版本一致的新标签即可；不要只上传 DMG 或 EXE 安装包。

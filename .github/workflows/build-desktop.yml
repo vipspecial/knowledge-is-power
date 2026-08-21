@@ -155,3 +155,6 @@ jobs:
         with:
           generate_release_notes: true
           files: release-artifacts/**/*
+
+      - name: Verify published updater manifest
+        run: curl --fail --location --retry 5 --retry-delay 3 "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/latest.json" --output /dev/null

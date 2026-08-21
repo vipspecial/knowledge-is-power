@@ -113,7 +113,8 @@ async function checkUpdate(showCurrentMessage = true): Promise<void> {
     }
   } catch (error) {
     updateState.value = "error";
-    updateMessage.value = `检查失败：${String(error)}`;
+    const message = error instanceof Error ? error.message : String(error);
+    updateMessage.value = `检查失败：${message}`;
   }
 }
 
@@ -128,7 +129,8 @@ async function installUpdate(): Promise<void> {
     });
   } catch (error) {
     updateState.value = "error";
-    updateMessage.value = `更新失败：${String(error)}`;
+    const message = error instanceof Error ? error.message : String(error);
+    updateMessage.value = `更新失败：${message}`;
   }
 }
 
