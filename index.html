@@ -7,6 +7,14 @@
     <title>拿了桔子跑啊</title>
   </head>
   <body>
+    <script>
+      // Branch-based GitHub Pages serves this Vite source file directly. Send
+      // that environment to the static promotional site instead of showing an
+      // empty app shell. Tauri and the local Vite server are unaffected.
+      if (window.location.hostname.endsWith(".github.io")) {
+        window.location.replace(new URL("website/", window.location.href));
+      }
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
