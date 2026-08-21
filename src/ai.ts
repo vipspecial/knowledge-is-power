@@ -6,10 +6,12 @@ export function createDocumentAiRequest(
   operation: AiOperation,
   prompt = "",
   selection = "",
+  model = "",
 ): AiRequest {
   if (!note.id) throw new Error("当前文档缺少标识，无法安全调用 AI");
   return {
     documentId: note.id,
+    model,
     operation,
     prompt,
     selection,

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AiSettings, AppSettings, NotesStore, SettingsView } from "./types";
+import { inferAiProvider } from "./aiProviders";
+import type { AiProtocol, AiSettings, AppSettings, NotesStore, SettingsView } from "./types";
 
 const settingsStorageKey = "mojian-settings";
 
@@ -9,9 +10,11 @@ export const defaultSettings: AppSettings = {
   },
   ai: {
     enabled: false,
+    provider: "openai",
     baseUrl: "https://api.openai.com/v1",
     protocol: "chatCompletions",
     model: "gpt-5.6",
+    models: ["gpt-5.6"],
     temperature: 0.3,
     maxContextChars: 30000,
   },
@@ -19,9 +22,12 @@ export const defaultSettings: AppSettings = {
 };
 
 export function cloneAppSettings(settings: AppSettings): AppSettings {
+  const models = Array.isArray(settings.ai.models) && settings.ai.models.length
+    ? settings.ai.models
+    : [settings.ai.model];
   return {
     general: { ...settings.general },
-    ai: { ...settings.ai },
+    ai: { ...settings.ai, models: [...models] },
     documentDirectory: settings.documentDirectory,
   };
 }
@@ -31,9 +37,15 @@ function isRunningInTauri(): boolean {
 }
 
 function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+  const storedAi = settings.ai as Partial<AiSettings> | undefined;
+  const ai = { ...defaultSettings.ai, ...storedAi };
+  if (!storedAi?.provider) {
+    ai.provider = inferAiProvider(ai.baseUrl, ai.protocol as AiProtocol);
+  }
+  ai.models = [...new Set([...(storedAi?.models ?? []), ai.model].map((model) => model.trim()).filter(Boolean))];
   return {
     general: { ...defaultSettings.general, ...settings.general },
-    ai: { ...defaultSettings.ai, ...settings.ai },
+    ai,
     documentDirectory: settings.documentDirectory ?? "",
   };
 }
@@ -76,6 +88,17 @@ export async function testAiConnection(
 ): Promise<string> {
   if (!isRunningInTauri()) throw new Error("请在桌面应用中测试 AI 连接");
   return invoke<string>("test_ai_connection", {
+    settings,
+    apiKey: apiKey?.trim() || null,
+  });
+}
+
+export async function listAiModels(
+  settings: AiSettings,
+  apiKey?: string,
+): Promise<string[]> {
+  if (!isRunningInTauri()) throw new Error("请在桌面应用中获取模型列表");
+  return invoke<string[]>("list_ai_models", {
     settings,
     apiKey: apiKey?.trim() || null,
   });

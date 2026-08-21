@@ -30,13 +30,15 @@ export interface GeneralSettings {
   autoSaveDelayMs: number;
 }
 
-export type AiProtocol = "chatCompletions" | "responses";
+export type AiProtocol = "chatCompletions" | "responses" | "anthropic";
 
 export interface AiSettings {
   enabled: boolean;
+  provider: string;
   baseUrl: string;
   protocol: AiProtocol;
   model: string;
+  models: string[];
   temperature: number;
   maxContextChars: number;
 }
@@ -97,6 +99,7 @@ export interface AiApplyPayload {
 
 export interface AiRequest {
   documentId: string;
+  model: string;
   operation: AiOperation;
   prompt: string;
   selection: string;

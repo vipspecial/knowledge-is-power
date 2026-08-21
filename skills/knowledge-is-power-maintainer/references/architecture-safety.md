@@ -5,7 +5,7 @@
 - 桌面壳：Tauri 2；后端命令与系统能力使用 Rust。
 - 前端：Vue 3、TypeScript、Vite；富文本编辑器使用 TipTap 3。
 - `src/App.vue` 负责应用级状态和跨组件编排；可复用视图在 `src/components/`。
-- `src/types.ts` 是前端领域类型入口；`src/ai.ts`、`src/settings.ts`、`src/storage.ts` 封装 Tauri 调用和浏览器调试回退。
+- `src/types.ts` 是前端领域类型入口；`src/aiProviders.ts` 管服务商预设；`src/ai.ts`、`src/settings.ts`、`src/storage.ts` 封装 Tauri 调用和浏览器调试回退。
 - `src-tauri/src/lib.rs` 注册命令；`library.rs` 管文档，`settings.rs` 管设置和 Key，`ai.rs` 管 AI 请求与流式响应，`models.rs` 管 Rust 数据类型。
 - 新增跨边界字段或命令时，同步 TypeScript 类型、Rust 模型、命令注册、调用参数和兼容默认值。
 
@@ -26,6 +26,9 @@
 - 对话、写作、标题、标签和选区工具不得从全局笔记集合拼接其他文章。
 - 保留上下文长度限制、连接超时、总超时、HTTP 状态压缩错误以及流式/非流式兼容。
 - 前端使用 Tauri Channel 接收流事件；不要把 AI HTTP 调用和密钥放到 WebView 前端。
+- 后端协议层支持 Chat Completions、OpenAI Responses 和 Anthropic Messages；新增服务商优先复用现有协议，只有请求体、鉴权或流事件确实不同才扩展协议适配器。
+- `AiSettings.models` 保存最多 20 个已配置模型，`model` 是默认模型；右侧对话区可在请求中携带当前文档选择的模型，但 Rust 端必须拒绝未出现在配置列表中的模型。
+- 模型发现经 Rust 使用当前服务鉴权访问 `/models`，限制响应体积并只返回经过长度校验的模型 ID；不把 API Key 交给前端网络请求。
 
 ## 设置与密钥
 

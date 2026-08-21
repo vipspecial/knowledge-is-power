@@ -67,7 +67,7 @@
 3. 在“设置 → AI 助手”配置模型服务。
 4. 从标题、选区、正文工具栏或右侧助手调用 AI。
 
-AI 支持 OpenAI Chat Completions、Responses API 及兼容服务。使用 Ollama 等本地服务时可以不填写 API Key。
+AI 配置内置国内、国外主流服务预设，也支持 OpenAI-compatible、Responses、Anthropic Messages 及自定义 API。可从服务端获取模型列表或手动配置多个模型，并在每篇文档的 AI 对话区独立切换。使用 Ollama 等本地服务时可以不填写 API Key。
 
 ## 数据与隐私
 

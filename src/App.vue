@@ -119,6 +119,13 @@ function toggleLibraryRail(): void {
   localStorage.setItem("orange-run-library-collapsed", String(libraryRailCollapsed.value));
 }
 
+function openNavigation(): void {
+  libraryRailCollapsed.value = false;
+  sidebarCollapsed.value = false;
+  localStorage.setItem("orange-run-library-collapsed", "false");
+  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+}
+
 function openTrash(): void {
   activeNavigation.value = "trash";
   sidebarCollapsed.value = false;
@@ -975,7 +982,6 @@ onBeforeUnmount(() => {
       :notes="notes"
       :selected-id="selectedKnowledgeBaseId"
       :save-state="saveState"
-      :document-pane-collapsed="sidebarCollapsed"
       :trash-active="activeNavigation === 'trash'"
       :trash-count="trashedNotes.length"
       @select="selectKnowledgeBase"
@@ -983,7 +989,6 @@ onBeforeUnmount(() => {
       @rename="openRenameKnowledgeBase"
       @delete="openDeleteKnowledgeBase"
       @import="importMarkdown"
-      @toggle-documents="toggleSidebar"
       @toggle-rail="toggleLibraryRail"
       @open-trash="openTrash"
       @context="openKnowledgeBaseContextMenu"
@@ -991,13 +996,24 @@ onBeforeUnmount(() => {
     />
 
     <button
-      v-else
+      v-if="libraryRailCollapsed && !sidebarCollapsed"
       class="library-reopen-button"
       type="button"
       title="展开知识库栏"
       aria-label="展开知识库栏"
       @click="toggleLibraryRail"
     >›</button>
+
+    <button
+      v-if="libraryRailCollapsed && sidebarCollapsed"
+      class="navigation-reopen-button"
+      type="button"
+      title="展开知识库和文档列表"
+      aria-label="展开导航"
+      @click="openNavigation"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M13 4v16"/></svg>
+    </button>
 
     <NoteListPane
       v-if="!sidebarCollapsed && activeNavigation === 'library'"
@@ -1050,7 +1066,7 @@ onBeforeUnmount(() => {
     </div>
 
     <button
-      v-else
+      v-if="sidebarCollapsed && !libraryRailCollapsed"
       class="sidebar-reopen-button"
       type="button"
       title="展开文档列表"
@@ -1179,6 +1195,8 @@ onBeforeUnmount(() => {
       ref="aiPanel"
       v-show="aiPanelOpen"
       :enabled="settings.ai.enabled"
+      :model="settings.ai.model"
+      :models="settings.ai.models"
       :note="selectedNote"
       @close="aiPanelOpen = false"
       @open-settings="openSettings('ai')"

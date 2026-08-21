@@ -261,11 +261,12 @@ body.panel-resizing {
   opacity: 1;
 }
 
-.sidebar-reopen-button {
+.sidebar-reopen-button,
+.library-reopen-button,
+.navigation-reopen-button {
   position: absolute;
   z-index: 18;
   top: 50%;
-  left: var(--library-width);
   display: grid;
   width: 18px;
   height: 30px;
@@ -274,51 +275,46 @@ body.panel-resizing {
   padding: 0;
   border: 1px solid #d8d3c9;
   border-radius: 7px;
-  color: #59695e;
+  color: #7b766d;
   background: #fbfaf7;
   box-shadow: 0 2px 9px rgb(52 47 38 / 10%);
   cursor: pointer;
   font-size: 16px;
 }
 
-.sidebar-reopen-button:hover {
-  color: #fff;
-  border-color: var(--accent-solid);
-  background: var(--accent-solid);
+.sidebar-reopen-button {
+  left: var(--library-width);
 }
 
-.library-reopen-button {
-  position: absolute;
-  z-index: 19;
-  top: calc(50% - 18px);
-  left: 0;
-  display: grid;
-  width: 18px;
-  height: 30px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid #d8d3c9;
-  border-left: 0;
-  border-radius: 0 7px 7px 0;
-  color: #59695e;
-  background: #fbfaf7;
-  box-shadow: 2px 2px 9px rgb(52 47 38 / 9%);
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.library-reopen-button:hover {
-  color: #fff;
-  border-color: var(--accent-solid);
-  background: var(--accent-solid);
-}
-
-.library-collapsed .sidebar-reopen-button {
-  top: calc(50% + 18px);
+.library-reopen-button,
+.navigation-reopen-button {
   left: 0;
   transform: translateY(-50%);
   border-left: 0;
   border-radius: 0 7px 7px 0;
+}
+
+.navigation-reopen-button {
+  width: 24px;
+  height: 34px;
+}
+
+.navigation-reopen-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.sidebar-reopen-button:hover,
+.library-reopen-button:hover,
+.navigation-reopen-button:hover {
+  color: #fff;
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
 }
 
 .sidebar-header {

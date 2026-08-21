@@ -33,6 +33,47 @@ fn default_document_directory(app: &tauri::AppHandle) -> Result<PathBuf, String>
     Ok(data_dir.join("library"))
 }
 
+fn infer_ai_provider(base_url: &str, protocol: &str) -> String {
+    let base_url = base_url.to_ascii_lowercase();
+    for (host, provider) in [
+        ("api.deepseek.com", "deepseek"),
+        ("dashscope.aliyuncs.com", "dashscope"),
+        ("open.bigmodel.cn", "zhipu"),
+        ("api.moonshot.cn", "moonshot"),
+        ("ark.cn-beijing.volces.com", "volcengine"),
+        ("api.siliconflow.cn", "siliconflow"),
+        ("api.openai.com", "openai"),
+        ("api.anthropic.com", "anthropic"),
+        ("generativelanguage.googleapis.com", "gemini"),
+        ("api.x.ai", "xai"),
+        ("api.mistral.ai", "mistral"),
+        ("openrouter.ai", "openrouter"),
+    ] {
+        if base_url.contains(host) {
+            return provider.to_string();
+        }
+    }
+    if protocol == "anthropic" && base_url.contains("anthropic") {
+        return "anthropic".to_string();
+    }
+    "custom".to_string()
+}
+
+fn normalize_ai_models(settings: &mut AiSettings) {
+    let mut models = Vec::new();
+    for model in settings
+        .models
+        .iter()
+        .map(|model| model.trim())
+        .chain(std::iter::once(settings.model.trim()))
+    {
+        if !model.is_empty() && !models.iter().any(|item| item == model) {
+            models.push(model.to_string());
+        }
+    }
+    settings.models = models;
+}
+
 fn read_api_key_file(path: &Path) -> Option<String> {
     fs::read_to_string(path)
         .ok()
@@ -93,7 +134,19 @@ pub(crate) fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> 
         if settings.model.trim().is_empty() {
             return Err("AI 模型名称不能为空".to_string());
         }
-        if !matches!(settings.protocol.as_str(), "chatCompletions" | "responses") {
+        let provider = settings.provider.trim();
+        if provider.is_empty()
+            || provider.len() > 64
+            || !provider
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        {
+            return Err("AI 服务商标识无效".to_string());
+        }
+        if !matches!(
+            settings.protocol.as_str(),
+            "chatCompletions" | "responses" | "anthropic"
+        ) {
             return Err("不支持的 AI 接口协议".to_string());
         }
     }
@@ -102,6 +155,19 @@ pub(crate) fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> 
     }
     if !(2_000..=200_000).contains(&settings.max_context_chars) {
         return Err("上下文长度必须在 2,000 到 200,000 字符之间".to_string());
+    }
+    if settings.models.is_empty() || settings.models.len() > 20 {
+        return Err("AI 模型列表必须包含 1 到 20 个模型".to_string());
+    }
+    if settings
+        .models
+        .iter()
+        .any(|model| model.trim().is_empty() || model.chars().count() > 200)
+    {
+        return Err("AI 模型名称不能为空且不能超过 200 个字符".to_string());
+    }
+    if !settings.models.iter().any(|model| model == &settings.model) {
+        return Err("当前 AI 模型不在已配置模型列表中".to_string());
     }
     Ok(())
 }
@@ -121,6 +187,10 @@ pub(crate) fn load_app_settings(app: &tauri::AppHandle) -> Result<AppSettings, S
             .to_string_lossy()
             .into_owned();
     }
+    if settings.ai.provider.trim().is_empty() {
+        settings.ai.provider = infer_ai_provider(&settings.ai.base_url, &settings.ai.protocol);
+    }
+    normalize_ai_models(&mut settings.ai);
     Ok(settings)
 }
 
@@ -183,6 +253,44 @@ pub(crate) fn clear_ai_api_key(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn infers_known_and_custom_ai_providers() {
+        assert_eq!(
+            infer_ai_provider("https://api.deepseek.com/v1", "chatCompletions"),
+            "deepseek"
+        );
+        assert_eq!(
+            infer_ai_provider("https://api.anthropic.com/v1", "anthropic"),
+            "anthropic"
+        );
+        assert_eq!(
+            infer_ai_provider("http://localhost:11434/v1", "chatCompletions"),
+            "custom"
+        );
+    }
+
+    #[test]
+    fn accepts_anthropic_and_migrates_legacy_provider_metadata() {
+        let legacy: AiSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "baseUrl": "https://api.anthropic.com/v1",
+            "protocol": "anthropic",
+            "model": "claude-test",
+            "temperature": 0.3,
+            "maxContextChars": 30000
+        }))
+        .expect("deserialize legacy settings");
+        assert!(legacy.provider.is_empty());
+        assert!(legacy.models.is_empty());
+
+        let mut migrated = legacy;
+        migrated.provider = infer_ai_provider(&migrated.base_url, &migrated.protocol);
+        normalize_ai_models(&mut migrated);
+        assert_eq!(migrated.provider, "anthropic");
+        assert_eq!(migrated.models, vec!["claude-test"]);
+        validate_ai_settings(&migrated).expect("validate Anthropic settings");
+    }
 
     #[test]
     fn stores_api_key_in_a_private_local_file() {

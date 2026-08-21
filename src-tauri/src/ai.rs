@@ -7,13 +7,32 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 
+const MAX_MODEL_LIST_BYTES: usize = 2 * 1024 * 1024;
+
 fn endpoint(base_url: &str, protocol: &str) -> String {
     let base = base_url.trim().trim_end_matches('/');
     match protocol {
+        "anthropic" if base.ends_with("/messages") => base.to_string(),
+        "anthropic" => format!("{base}/messages"),
         "responses" if base.ends_with("/responses") => base.to_string(),
         "responses" => format!("{base}/responses"),
         _ if base.ends_with("/chat/completions") => base.to_string(),
         _ => format!("{base}/chat/completions"),
+    }
+}
+
+fn models_endpoint(base_url: &str) -> String {
+    let mut base = base_url.trim().trim_end_matches('/');
+    for suffix in ["/chat/completions", "/responses", "/messages"] {
+        if let Some(value) = base.strip_suffix(suffix) {
+            base = value.trim_end_matches('/');
+            break;
+        }
+    }
+    if base.ends_with("/models") {
+        base.to_string()
+    } else {
+        format!("{base}/models")
     }
 }
 
@@ -98,7 +117,18 @@ fn request_body(
     user: &str,
     stream: bool,
 ) -> Value {
-    if settings.protocol == "responses" {
+    if settings.protocol == "anthropic" {
+        json!({
+            "model": settings.model,
+            "max_tokens": 8192,
+            "system": system,
+            "messages": [
+                { "role": "user", "content": user }
+            ],
+            "temperature": settings.temperature,
+            "stream": stream
+        })
+    } else if settings.protocol == "responses" {
         json!({
             "model": settings.model,
             "instructions": system,
@@ -120,6 +150,17 @@ fn request_body(
 }
 
 fn extract_stream_delta(protocol: &str, value: &Value) -> Option<String> {
+    if protocol == "anthropic" {
+        if value.get("type")?.as_str()? == "content_block_delta"
+            && value.pointer("/delta/type")?.as_str()? == "text_delta"
+        {
+            return value
+                .pointer("/delta/text")?
+                .as_str()
+                .map(ToString::to_string);
+        }
+        return None;
+    }
     if protocol == "responses" {
         if value.get("type")?.as_str()? == "response.output_text.delta" {
             return value.get("delta")?.as_str().map(ToString::to_string);
@@ -141,6 +182,16 @@ fn extract_error(value: &Value) -> Option<String> {
 }
 
 fn extract_non_stream_text(protocol: &str, value: &Value) -> Option<String> {
+    if protocol == "anthropic" {
+        return value
+            .get("content")?
+            .as_array()?
+            .iter()
+            .find(|content| content.get("type").and_then(Value::as_str) == Some("text"))
+            .and_then(|content| content.get("text"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+    }
     if protocol == "responses" {
         return value
             .get("output")?
@@ -161,6 +212,44 @@ fn extract_non_stream_text(protocol: &str, value: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn extract_model_ids(value: &Value) -> Vec<String> {
+    let items = value
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| value.get("models").and_then(Value::as_array))
+        .or_else(|| value.as_array());
+    let Some(items) = items else {
+        return Vec::new();
+    };
+    let mut models: Vec<String> = items
+        .iter()
+        .filter_map(|item| {
+            item.get("id")
+                .or_else(|| item.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|model| !model.is_empty() && model.chars().count() <= 200)
+                .map(ToString::to_string)
+        })
+        .collect();
+    models.sort_by_key(|model| model.to_ascii_lowercase());
+    models.dedup();
+    models.truncate(500);
+    models
+}
+
+fn apply_request_model(settings: &mut AiSettings, requested_model: &str) -> Result<(), String> {
+    let requested_model = requested_model.trim();
+    if requested_model.is_empty() {
+        return Ok(());
+    }
+    if !settings.models.iter().any(|model| model == requested_model) {
+        return Err("当前文档选择的模型不在已配置模型列表中".to_string());
+    }
+    settings.model = requested_model.to_string();
+    Ok(())
+}
+
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -171,10 +260,20 @@ fn client() -> Result<reqwest::Client, String> {
 
 fn with_auth(
     request: reqwest::RequestBuilder,
+    protocol: &str,
     api_key: Option<&str>,
 ) -> reqwest::RequestBuilder {
+    let request = if protocol == "anthropic" {
+        request.header("anthropic-version", "2023-06-01")
+    } else {
+        request
+    };
     if let Some(key) = api_key.filter(|key| !key.trim().is_empty()) {
-        request.bearer_auth(key.trim())
+        if protocol == "anthropic" {
+            request.header("x-api-key", key.trim())
+        } else {
+            request.bearer_auth(key.trim())
+        }
     } else {
         request
     }
@@ -201,11 +300,12 @@ pub(crate) async fn stream_ai(
     if request.document_id.trim().is_empty() {
         return Err("当前文档标识为空，已阻止 AI 请求以避免文档上下文混用".to_string());
     }
-    let settings = load_app_settings(&app)?.ai;
+    let mut settings = load_app_settings(&app)?.ai;
     if !settings.enabled {
         return Err("请先在设置中启用并配置 AI".to_string());
     }
     validate_ai_settings(&settings)?;
+    apply_request_model(&mut settings, &request.model)?;
     let (system, user) = build_prompts(&request, settings.max_context_chars);
     let body = request_body(&settings, &system, &user, true);
     let url = endpoint(&settings.base_url, &settings.protocol);
@@ -215,7 +315,7 @@ pub(crate) async fn stream_ai(
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "text/event-stream")
         .json(&body);
-    let response = with_auth(request, api_key.as_deref())
+    let response = with_auth(request, &settings.protocol, api_key.as_deref())
         .send()
         .await
         .map_err(|error| format!("无法连接 AI 服务：{error}"))?;
@@ -322,7 +422,7 @@ pub(crate) async fn test_ai_connection(
         .post(url)
         .header(CONTENT_TYPE, "application/json")
         .json(&body);
-    let response = with_auth(request, key)
+    let response = with_auth(request, &settings.protocol, key)
         .send()
         .await
         .map_err(|error| format!("无法连接 AI 服务：{error}"))?;
@@ -341,6 +441,55 @@ pub(crate) async fn test_ai_connection(
         .ok_or_else(|| "AI 服务已响应，但没有返回文本内容".to_string())
 }
 
+#[tauri::command]
+pub(crate) async fn list_ai_models(
+    app: tauri::AppHandle,
+    settings: AiSettings,
+    api_key: Option<String>,
+) -> Result<Vec<String>, String> {
+    validate_ai_settings(&settings)?;
+    let stored_key = get_api_key(&app);
+    let key = api_key
+        .as_deref()
+        .filter(|key| !key.trim().is_empty())
+        .or(stored_key.as_deref());
+    let request = client()?
+        .get(models_endpoint(&settings.base_url))
+        .header(ACCEPT, "application/json");
+    let response = with_auth(request, &settings.protocol, key)
+        .send()
+        .await
+        .map_err(|error| format!("无法获取模型列表：{error}"))?;
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MODEL_LIST_BYTES as u64)
+    {
+        return Err("模型列表响应超过 2 MB，已停止读取".to_string());
+    }
+    let mut stream = response.bytes_stream();
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| format!("无法读取模型列表：{error}"))?;
+        if chunk.len() > MAX_MODEL_LIST_BYTES.saturating_sub(body.len()) {
+            return Err("模型列表响应超过 2 MB，已停止读取".to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let body = String::from_utf8_lossy(&body);
+    if !status.is_success() {
+        return Err(compact_http_error(status, body.as_ref()));
+    }
+    let value: Value = serde_json::from_str(body.as_ref())
+        .map_err(|error| format!("模型列表不是有效 JSON：{error}"))?;
+    let models = extract_model_ids(&value);
+    if models.is_empty() {
+        Err("服务未返回可识别的模型列表，请手动填写模型 ID".to_string())
+    } else {
+        Ok(models)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +497,7 @@ mod tests {
     fn test_request(operation: &str) -> AiRequest {
         AiRequest {
             document_id: "doc-current".to_string(),
+            model: String::new(),
             operation: operation.to_string(),
             prompt: "这篇文档讲了什么？".to_string(),
             selection: String::new(),
@@ -366,12 +516,28 @@ mod tests {
             endpoint("http://localhost:11434/v1", "responses"),
             "http://localhost:11434/v1/responses"
         );
+        assert_eq!(
+            endpoint("https://api.anthropic.com/v1/", "anthropic"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            models_endpoint("https://api.openai.com/v1/chat/completions"),
+            "https://api.openai.com/v1/models"
+        );
+        assert_eq!(
+            models_endpoint("https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1/models"
+        );
     }
 
     #[test]
-    fn extracts_both_stream_formats() {
+    fn extracts_supported_stream_formats() {
         let chat = json!({"choices":[{"delta":{"content":"你好"}}]});
         let responses = json!({"type":"response.output_text.delta","delta":"世界"});
+        let anthropic = json!({
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": "！"}
+        });
         assert_eq!(
             extract_stream_delta("chatCompletions", &chat).as_deref(),
             Some("你好")
@@ -380,6 +546,78 @@ mod tests {
             extract_stream_delta("responses", &responses).as_deref(),
             Some("世界")
         );
+        assert_eq!(
+            extract_stream_delta("anthropic", &anthropic).as_deref(),
+            Some("！")
+        );
+    }
+
+    #[test]
+    fn builds_and_reads_anthropic_messages() {
+        let mut settings = AiSettings::default();
+        settings.protocol = "anthropic".to_string();
+        settings.model = "claude-test".to_string();
+        let body = request_body(&settings, "系统要求", "用户内容", true);
+        assert_eq!(body.get("system").and_then(Value::as_str), Some("系统要求"));
+        assert_eq!(
+            body.pointer("/messages/0/content").and_then(Value::as_str),
+            Some("用户内容")
+        );
+        assert_eq!(body.get("stream").and_then(Value::as_bool), Some(true));
+
+        let response = json!({
+            "content": [
+                {"type": "text", "text": "连接成功"}
+            ]
+        });
+        assert_eq!(
+            extract_non_stream_text("anthropic", &response).as_deref(),
+            Some("连接成功")
+        );
+    }
+
+    #[test]
+    fn uses_anthropic_auth_headers() {
+        let request = with_auth(
+            reqwest::Client::new().post("https://api.anthropic.com/v1/messages"),
+            "anthropic",
+            Some("test-key"),
+        )
+        .build()
+        .expect("build request");
+        assert_eq!(
+            request
+                .headers()
+                .get("anthropic-version")
+                .and_then(|value| value.to_str().ok()),
+            Some("2023-06-01")
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get("x-api-key")
+                .and_then(|value| value.to_str().ok()),
+            Some("test-key")
+        );
+        assert!(request.headers().get("authorization").is_none());
+    }
+
+    #[test]
+    fn reads_model_lists_and_applies_configured_override() {
+        let response = json!({
+            "data": [
+                {"id": "model-b"},
+                {"id": "model-a"},
+                {"id": "model-a"}
+            ]
+        });
+        assert_eq!(extract_model_ids(&response), vec!["model-a", "model-b"]);
+
+        let mut settings = AiSettings::default();
+        settings.models = vec!["model-a".to_string(), "model-b".to_string()];
+        apply_request_model(&mut settings, "model-b").expect("apply model");
+        assert_eq!(settings.model, "model-b");
+        assert!(apply_request_model(&mut settings, "not-configured").is_err());
     }
 
     #[test]

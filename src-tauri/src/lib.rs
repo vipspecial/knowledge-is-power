@@ -3,7 +3,7 @@ mod library;
 mod models;
 mod settings;
 
-use ai::{stream_ai, test_ai_connection};
+use ai::{list_ai_models, stream_ai, test_ai_connection};
 use library::{
     choose_document_directory, export_markdown, import_markdown, load_store, save_store,
 };
@@ -32,7 +32,8 @@ pub fn run() {
             save_settings,
             clear_ai_api_key,
             stream_ai,
-            test_ai_connection
+            test_ai_connection,
+            list_ai_models
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Orange Run Notes");

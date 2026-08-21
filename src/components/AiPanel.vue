@@ -38,10 +38,14 @@ interface RunOptions {
   userContent: string;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   enabled: boolean;
   note?: Note;
-}>();
+  model: string;
+  models: string[];
+}>(), {
+  models: () => [],
+});
 
 const emit = defineEmits<{
   close: [];
@@ -55,6 +59,8 @@ const chatInput = ref("");
 const busy = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const taskQueue: AiPanelTask[] = [];
+const documentModelStorageKey = "orange-run-document-ai-model-v1";
+const documentModels = ref<Record<string, string>>(loadDocumentModels());
 
 const quickPrompts = [
   { label: "快速摘要", prompt: "用一段摘要和三个要点概括当前文档。" },
@@ -73,6 +79,42 @@ const currentMessages = computed(() =>
 const contextLabel = computed(() =>
   props.note ? `独立会话 · ${props.note.title || "无标题文档"}` : "未选择文档",
 );
+const availableModels = computed(() =>
+  [...new Set([...props.models, props.model].map((model) => model.trim()).filter(Boolean))],
+);
+const currentModel = computed(() =>
+  props.note ? modelForDocument(props.note.id) : props.model,
+);
+
+function loadDocumentModels(): Record<string, string> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(documentModelStorageKey) ?? "{}") as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function modelForDocument(documentId: string): string {
+  const selected = documentModels.value[documentId];
+  if (selected && availableModels.value.includes(selected)) return selected;
+  if (availableModels.value.includes(props.model)) return props.model;
+  return availableModels.value[0] ?? "";
+}
+
+function selectDocumentModel(event: Event): void {
+  if (!props.note) return;
+  const model = (event.target as HTMLSelectElement).value;
+  if (!availableModels.value.includes(model)) return;
+  const next = { ...documentModels.value };
+  delete next[props.note.id];
+  next[props.note.id] = model;
+  const recent = Object.fromEntries(Object.entries(next).slice(-500));
+  documentModels.value = recent;
+  localStorage.setItem(documentModelStorageKey, JSON.stringify(recent));
+}
 
 function conversationFor(documentId: string): AiMessage[] {
   if (!conversations.value[documentId]) conversations.value[documentId] = [];
@@ -180,6 +222,7 @@ async function runRequest(options: RunOptions): Promise<void> {
     options.operation,
     requestPrompt,
     options.selection ?? "",
+    modelForDocument(options.note.id),
   );
   let streamError = "";
   try {
@@ -285,6 +328,15 @@ onBeforeUnmount(clearStreamQueue);
       <section class="ai-context">
         <span></span>
         <p>{{ contextLabel }}</p>
+        <select
+          :value="currentModel"
+          :disabled="busy || !note"
+          aria-label="当前文档 AI 模型"
+          title="当前文档使用的 AI 模型"
+          @change="selectDocumentModel"
+        >
+          <option v-for="item in availableModels" :key="item" :value="item">{{ item }}</option>
+        </select>
       </section>
 
       <section class="ai-quick" aria-label="当前文档快捷提问">
@@ -368,7 +420,7 @@ onBeforeUnmount(clearStreamQueue);
 .article-writer p{margin:0;color:#828a82;font-size:9px;line-height:1.5}.article-writer>button{height:30px;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:10px;font-weight:650}.article-writer>button:disabled{opacity:.5;cursor:default}
 
 /* AI 是辅助区：压缩固定控件，把高度优先留给对话内容，同时保持正文可读。 */
-.ai-header{height:52px;padding:0 13px}.ai-mark{width:28px;height:28px;border-radius:8px;font-size:13px}.ai-header>div{min-width:0}.ai-header>div>div{min-width:0}.ai-header strong,.ai-header small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ai-header strong{font-size:12px}.ai-header small{font-size:9px}.ai-context{height:30px;padding:0 12px}.ai-context p{font-size:10px}
+.ai-header{height:52px;padding:0 13px}.ai-mark{width:28px;height:28px;border-radius:8px;font-size:13px}.ai-header>div{min-width:0}.ai-header>div>div{min-width:0}.ai-header strong,.ai-header small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ai-header strong{font-size:12px}.ai-header small{font-size:9px}.ai-context{height:34px;padding:0 9px 0 12px}.ai-context p{flex:1;font-size:9px}.ai-context select{width:min(46%,145px);height:25px;padding:0 21px 0 7px;border:1px solid var(--accent-border);border-radius:6px;outline:0;color:var(--accent-strong);background:#fffefa;font-size:9px;text-overflow:ellipsis}.ai-context select:disabled{opacity:.6}
 .ai-actions{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:8px 9px}.ai-actions button{height:30px;padding:0 3px;font-size:10px}.ai-actions button.featured{grid-column:span 2}
 .ai-messages{padding:12px 11px}.ai-welcome{padding:22px 10px}.ai-welcome>div{width:38px;height:38px;margin-bottom:9px}.ai-welcome h3{font-size:14px}.ai-welcome p{margin:7px 0 13px;font-size:11px}.ai-welcome button{padding:8px 9px;font-size:11px}
 .message-avatar{width:25px;height:25px}.message-content{max-width:calc(100% - 32px)}.user .message-content{font-size:11px}.message-markdown{font-size:12px;line-height:1.7}.message-actions button{font-size:10px}.ai-composer{margin:0 9px 9px;padding:8px 9px}.ai-composer textarea{min-height:42px;font-size:12px}.ai-composer span{font-size:9px}.ai-composer button{width:27px;height:27px}

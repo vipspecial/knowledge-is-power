@@ -55,9 +55,13 @@ impl Default for GeneralSettings {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct AiSettings {
     pub(crate) enabled: bool,
+    #[serde(default = "missing_ai_provider")]
+    pub(crate) provider: String,
     pub(crate) base_url: String,
     pub(crate) protocol: String,
     pub(crate) model: String,
+    #[serde(default)]
+    pub(crate) models: Vec<String>,
     pub(crate) temperature: f32,
     pub(crate) max_context_chars: usize,
 }
@@ -66,13 +70,19 @@ impl Default for AiSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            provider: "openai".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             protocol: "chatCompletions".to_string(),
             model: "gpt-5.6".to_string(),
+            models: vec!["gpt-5.6".to_string()],
             temperature: 0.3,
             max_context_chars: 30_000,
         }
     }
+}
+
+fn missing_ai_provider() -> String {
+    String::new()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -104,6 +114,8 @@ pub(crate) struct ImportedMarkdown {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AiRequest {
     pub(crate) document_id: String,
+    #[serde(default)]
+    pub(crate) model: String,
     pub(crate) operation: String,
     #[serde(default)]
     pub(crate) prompt: String,
