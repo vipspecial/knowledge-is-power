@@ -38,7 +38,6 @@ jobs:
         run: |
           mkdir _site
           cp -R website/. _site/
-          sed -i "s|__REPOSITORY__|${GITHUB_REPOSITORY}|g" _site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
