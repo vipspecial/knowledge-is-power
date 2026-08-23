@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#fffaf5" />
     <meta
       name="description"
-      content="拿了桔子跑啊是一款 AI 原生知识工作台，让每一篇文档都拥有理解、创作与推演能力。"
+      content="拿了桔子跑啊是一款 AI 原生知识工作台：每篇文档都有独立 AI 会话，划选即改、追问即答，内容以本地 Markdown 保存，始终由你掌控。"
     />
     <title>拿了桔子跑啊 · AI 原生知识工作台</title>
     <link rel="icon" href="./assets/logo.svg" type="image/svg+xml" />
@@ -35,7 +35,7 @@
           <p class="eyebrow"><span></span>AI-NATIVE KNOWLEDGE WORKSPACE</p>
           <h1>让每一篇文档，<br /><em>自带思考能力。</em></h1>
           <p class="hero-description">
-            从灵感、大纲到成稿与复盘，AI 读懂当前文章，在需要的位置直接行动。
+            从一句灵感到完整成稿，AI 始终围绕你正在写的这一篇——续写、润色、追问，结果直接落进正文。
           </p>
           <div class="hero-actions">
             <a class="primary-action" href="https://github.com/vipspecial/knowledge-is-power/releases">下载桌面版</a>
@@ -52,27 +52,107 @@
           </p>
         </div>
 
-        <div class="app-preview" aria-label="应用界面示意图">
-          <div class="window-bar"><i></i><i></i><i></i><span>产品发布文章</span></div>
+        <div class="app-preview" role="img" aria-label="主界面：左侧知识库栏与文档列表，中间所见即所得编辑器，右侧文档助手面板">
+          <div class="window-bar"><i></i><i></i><i></i><span>拿了桔子跑啊</span></div>
           <div class="preview-layout">
-            <aside class="preview-libraries">
-              <img src="./assets/logo.svg" alt="" />
-              <span class="active-dot"></span><span></span><span></span><span></span>
+            <aside class="preview-rail">
+              <div class="preview-rail-brand">
+                <img src="./assets/logo.svg" alt="" />
+                <strong>拿了桔子跑啊</strong>
+              </div>
+              <p class="preview-rail-label"><span>全部知识库</span><i>＋</i></p>
+              <div class="preview-library active">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h13a1 1 0 0 1 1 1v15H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm-1 13a3 3 0 0 1 3-3h12"/></svg>
+                <span>内容计划</span><small>12</small>
+              </div>
+              <div class="preview-library">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h13a1 1 0 0 1 1 1v15H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm-1 13a3 3 0 0 1 3-3h12"/></svg>
+                <span>行业观察</span><small>8</small>
+              </div>
+              <div class="preview-library">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h13a1 1 0 0 1 1 1v15H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Zm-1 13a3 3 0 0 1 3-3h12"/></svg>
+                <span>生活灵感</span><small>5</small>
+              </div>
+              <footer class="preview-rail-tools">
+                <span>↥ 导入 Markdown</span>
+                <span>♲ 回收站 <small>3</small></span>
+                <span>⚙ 设置</span>
+                <em>已保存到本机</em>
+              </footer>
             </aside>
+
             <aside class="preview-documents">
-              <strong>内容计划</strong>
-              <button>＋ 新建文档</button>
+              <header class="preview-documents-header">
+                <strong>内容计划</strong>
+                <span class="preview-new">＋ 新建文档</span>
+              </header>
+              <label class="preview-search">搜索当前知识库</label>
               <div class="preview-document active"><b>产品发布文章</b><small>完善开头与价值说明</small></div>
-              <div class="preview-document"><b>用户访谈</b><small>整理关键反馈</small></div>
-              <div class="preview-document"><b>灵感清单</b><small>记录新的想法</small></div>
+              <div class="preview-document"><b>用户访谈</b><small>整理三条关键反馈</small></div>
+              <div class="preview-document"><b>竞品速览</b><small>补充定价与人群对比</small></div>
             </aside>
+
             <article class="preview-editor">
-              <div class="editor-badge">AI 正在补全论证</div>
-              <h2>知识，不止被记录</h2>
-              <p>让 AI 帮你提炼、追问、补全，把零散想法变成可用成果。</p>
-              <div class="text-line wide"></div><div class="text-line"></div><div class="text-line short"></div>
-              <div class="ai-result"><span>✦</span><p><b>发现一个论证缺口</b><br />加入用户场景，可以让结论更有力量。</p></div>
+              <header class="preview-editor-toolbar">
+                <div class="pt-meta"><span>2026年8月23日</span><i></i><span>1280 字</span></div>
+                <div class="pt-actions">
+                  <span class="pt-ai">✦ AI</span>
+                  <span class="pt-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 4 6 0-1 5 3 3v2H7v-2l3-3-1-5Zm3 10v6"/></svg></span>
+                  <span class="pt-dots">•••</span>
+                </div>
+              </header>
+              <div class="preview-title-row">
+                <strong>产品发布文章</strong>
+                <span>✦ 生成标题</span>
+              </div>
+              <div class="preview-tag-row">
+                <span>标签</span><i>产品, 发布</i><span>✦ 智能标签</span>
+              </div>
+              <div class="preview-format-bar">
+                <b>B</b><i>I</i><u>U</u><s>S</s><em>高亮</em>
+                <span class="pt-divider"></span>
+                <em>• 列表</em><em>1. 列表</em><em>☑ 任务</em><em class="pt-more">更多 ⌄</em>
+              </div>
+              <div class="preview-editor-body">
+                <h2>知识，不止被记录</h2>
+                <p class="preview-lead">让 AI 帮你提炼、追问、补全，把零散想法变成可用成果。</p>
+                <div class="text-line wide"></div>
+                <div class="text-line"></div>
+                <div class="text-line short"></div>
+                <p class="preview-highlight">写作，是把想法交给自己审视的过程。</p>
+                <div class="text-line wide"></div>
+                <div class="text-line short"></div>
+              </div>
             </article>
+
+            <aside class="preview-ai">
+              <header class="preview-ai-header">
+                <span class="preview-ai-mark">✦</span>
+                <div><strong>文档助手</strong><small>仅处理当前文章</small></div>
+                <i class="preview-ai-close">×</i>
+              </header>
+              <div class="preview-ai-context">
+                <p>独立会话 · 产品发布文章</p>
+                <span>deepseek-chat ⌄</span>
+              </div>
+              <div class="preview-chips">
+                <span>快速摘要</span><span>发现缺口</span><span>行动建议</span>
+              </div>
+              <div class="preview-messages">
+                <div class="pm user"><p>这篇稿子还缺什么？</p></div>
+                <div class="pm assistant">
+                  <i>✦</i>
+                  <div>
+                    <p>论证里缺少真实用户场景。建议在第二段补一个具体例子，让结论更有力量<span class="pm-cursor"></span></p>
+                    <span class="pm-apply">写入正文</span>
+                  </div>
+                </div>
+              </div>
+              <footer class="preview-composer">
+                <p>询问当前文档…</p>
+                <div><span>Enter 发送 · Shift+Enter 换行</span><i>↑</i></div>
+              </footer>
+            </aside>
           </div>
         </div>
       </section>
@@ -86,17 +166,17 @@
           <article class="statement-card featured">
             <span>创作加速</span>
             <h3>从空白到初稿，<br /><em>想法不再停在脑海。</em></h3>
-            <p>主题变大纲，大纲变文章；续写、标题与标签一步到位。</p>
+            <p>把主题交给 AI：大纲、正文、标题与标签一步到位，从零开始也不怕。</p>
           </article>
           <article class="statement-card">
             <span>内容进化</span>
             <h3>选中一句，<br /><em>立即变得更有力量。</em></h3>
-            <p>润色、精简、扩写、翻译，结果可以直接替换或写入正文。</p>
+            <p>划选任意段落，润色、翻译、扩写、精简，结果一键替换或写入正文。</p>
           </article>
           <article class="statement-card">
             <span>深度思考</span>
             <h3>围绕全文追问，<br /><em>让遗漏自己浮现。</em></h3>
-            <p>总结、校对、提炼行动项，发现观点与结构中的缺口。</p>
+            <p>全文摘要、逻辑校对、行动项提炼，看清结构与观点里的缺口。</p>
           </article>
         </div>
         <div class="feature-tags" aria-label="其他能力">
@@ -106,6 +186,71 @@
           <span>OpenAI-compatible</span>
           <span>Ollama</span>
         </div>
+
+        <div class="showcase-grid">
+          <figure class="showcase">
+            <div class="showcase-frame">
+              <div class="window-bar"><i></i><i></i><i></i><span>产品发布文章</span></div>
+              <div class="zoom-editor">
+                <div class="preview-format-bar">
+                  <b>B</b><i>I</i><u>U</u><s>S</s><em>高亮</em>
+                  <span class="pt-divider"></span>
+                  <em>• 列表</em><em>1. 列表</em><em>☑ 任务</em><em class="pt-more">更多 ⌄</em>
+                </div>
+                <h2>知识，不止被记录</h2>
+                <p class="zoom-para selection-line">
+                  <span class="zoom-selection">真正拉开差距的，是把记录变成思考的那一步</span>——而这一步，现在可以交给 AI。
+                  <span class="selection-bubble" aria-hidden="true"><i>✦</i><b>润色</b><b>翻译</b><b>更多 ⌄</b></span>
+                  <span class="selection-menu" aria-hidden="true"><span>精简表达</span><span>扩写内容</span><span>解释内容</span><span>提取行动项</span><span>专业表达</span><span>自然口语</span></span>
+                </p>
+                <p class="zoom-para">工具决定想法的容器，习惯决定想法的产量。</p>
+                <div class="text-line"></div>
+                <div class="text-line short"></div>
+                <div class="text-line"></div>
+              </div>
+            </div>
+            <figcaption>划选文字，AI 浮层就地出现——润色、翻译、扩写，改动只发生在你选中的地方。</figcaption>
+          </figure>
+
+          <figure class="showcase">
+            <div class="showcase-frame">
+              <div class="window-bar"><i></i><i></i><i></i><span>文档助手</span></div>
+              <div class="zoom-ai">
+                <header class="preview-ai-header">
+                  <span class="preview-ai-mark">✦</span>
+                  <div><strong>文档助手</strong><small>仅处理当前文章</small></div>
+                  <i class="preview-ai-close">×</i>
+                </header>
+                <div class="preview-ai-context">
+                  <p>独立会话 · 产品发布文章</p>
+                  <span>deepseek-chat ⌄</span>
+                </div>
+                <div class="preview-chips">
+                  <span>快速摘要</span><span>发现缺口</span><span>行动建议</span>
+                </div>
+                <div class="zoom-messages">
+                  <div class="pm user"><p>以审稿人的角度，指出这篇稿子最大的问题。</p></div>
+                  <div class="pm assistant">
+                    <i>✦</i>
+                    <div>
+                      <p>
+                        1. 开头的价值主张偏抽象，缺一个可感知的场景；<br />
+                        2. 第二部分论据与结论之间有跳跃；<br />
+                        3. 结尾没有给读者下一步动作。<span class="pm-cursor"></span>
+                      </p>
+                      <span class="pm-apply">写入正文</span>
+                    </div>
+                  </div>
+                </div>
+                <footer class="preview-composer">
+                  <p>询问当前文档…</p>
+                  <div><span>Enter 发送 · Shift+Enter 换行</span><i>↑</i></div>
+                </footer>
+              </div>
+            </div>
+            <figcaption>每篇文档独立会话。流式回答，随时追问，满意就一键写入正文。</figcaption>
+          </figure>
+        </div>
       </section>
 
       <section id="local" class="knowledge-foundation">
@@ -113,12 +258,47 @@
           <div>
             <p class="eyebrow"><span></span>KNOWLEDGE, OWNED BY YOU</p>
             <h2>AI 放大思考，<br />数据仍由你掌控。</h2>
+            <div class="foundation-points">
+              <article><strong>知识各归其位</strong><p>多知识库与父子文档，让项目边界始终清楚。</p></article>
+              <article><strong>文件真正属于你</strong><p>每篇文档都是本地 .md 文件，目录由你指定，任何编辑器都能打开。</p></article>
+              <article><strong>上下文不串线</strong><p>AI 只读取当前文章，只有你主动发起时才发送。</p></article>
+            </div>
           </div>
-          <div class="foundation-points">
-            <article><strong>知识各归其位</strong><p>多知识库与父子文档，让项目边界始终清楚。</p></article>
-            <article><strong>文件真正属于你</strong><p>每篇文档都是本地 `.md` 文件，目录由你指定。</p></article>
-            <article><strong>上下文不串线</strong><p>AI 只读取当前文章，只有主动调用时才发送。</p></article>
-          </div>
+
+          <figure class="local-files" role="img" aria-label="本地目录中的 Markdown 文件列表">
+            <div class="window-bar dark"><i></i><i></i><i></i><span>我的文档 / 拿了桔子跑啊</span></div>
+            <div class="local-tree">
+              <div class="local-folder open">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z"/></svg>
+                <span>内容计划</span><small>12 篇</small>
+              </div>
+              <div class="local-file active">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Z"/><path d="M14 3v4h4"/></svg>
+                <span>产品发布文章.md</span><small>刚刚</small>
+              </div>
+              <div class="local-file">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Z"/><path d="M14 3v4h4"/></svg>
+                <span>用户访谈.md</span><small>昨天</small>
+              </div>
+              <div class="local-file">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Z"/><path d="M14 3v4h4"/></svg>
+                <span>竞品速览.md</span><small>3 天前</small>
+              </div>
+              <div class="local-folder">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z"/></svg>
+                <span>行业观察</span><small>8 篇</small>
+              </div>
+              <div class="local-folder">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z"/></svg>
+                <span>生活灵感</span><small>5 篇</small>
+              </div>
+              <div class="local-file meta">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Z"/><path d="M14 3v4h4"/></svg>
+                <span>.mojian-library.json</span><small>结构清单</small>
+              </div>
+            </div>
+            <figcaption class="local-note">你指定的本地目录 · 每篇文档都是普通 .md 文件，随时用任何编辑器打开</figcaption>
+          </figure>
         </div>
       </section>
 
