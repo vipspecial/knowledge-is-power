@@ -1,6 +1,6 @@
 [package]
 name = "orange-run-notes"
-version = "0.7.1"
+version = "0.8.0"
 description = "A quiet local-first notes app"
 authors = ["Peter"]
 edition = "2021"
@@ -20,7 +20,9 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 
 [dev-dependencies]
 tempfile = "3"

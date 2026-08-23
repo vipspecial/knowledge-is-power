@@ -8,7 +8,6 @@ const emit = defineEmits<{
   restore: [id: string];
   remove: [id: string];
   empty: [];
-  context: [id: string, event: MouseEvent];
 }>();
 
 function title(note: Note): string {
@@ -45,7 +44,6 @@ function deletedLabel(value: string | null): string {
         v-for="note in notes"
         :key="note.id"
         class="trash-item"
-        @contextmenu.prevent.stop="emit('context', note.id, $event)"
       >
         <div>
           <strong>{{ title(note) }}</strong>
@@ -68,6 +66,6 @@ function deletedLabel(value: string | null): string {
 </template>
 
 <style scoped>
-.trash-pane{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:#f4f1ea}.trash-header{display:flex;height:52px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 11px;border-bottom:1px solid #dfdad0}.trash-header>div{display:flex;min-width:0;align-items:center;gap:7px}.trash-header>div>button{display:grid;width:25px;height:25px;place-items:center;padding:0;border:0;border-radius:7px;color:#6f6960;background:transparent;cursor:pointer;font-size:20px}.trash-header>div>button:hover{background:#e8e5de}.trash-header strong{font-size:12px}.trash-header small{color:#999288;font-size:9px}.empty-trash{height:27px;padding:0 8px;border:1px solid #e0cac6;border-radius:7px;color:#984b44;background:#fff7f5;cursor:pointer;font-size:9px}.trash-hint{flex:0 0 auto;margin:0;padding:9px 13px;color:#918b81;background:#eeebe4;font-size:9px;line-height:1.5}.trash-list{min-height:0;flex:1;overflow-y:auto;padding:8px}.trash-item{margin-bottom:6px;padding:10px;border:1px solid #e0dbd1;border-radius:10px;background:#fffefa}.trash-item>div{display:flex;align-items:center;gap:7px}.trash-item strong{min-width:0;flex:1;overflow:hidden;color:#46423b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.trash-item time{color:#9a9489;font-size:8px;white-space:nowrap}.trash-item p{margin:5px 0 8px;overflow:hidden;color:#898379;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.trash-item footer{display:flex;justify-content:flex-end;gap:5px}.trash-item footer button{height:25px;padding:0 8px;border:1px solid #d5ddd6;border-radius:6px;color:#45604d;background:#f1f5f1;cursor:pointer;font-size:9px}.trash-item footer button.danger{border-color:#ead2ce;color:#9a4c45;background:#fff5f3}.trash-empty{display:grid;height:100%;place-content:center;justify-items:center;color:#999288;text-align:center}.trash-empty span{font-size:30px}.trash-empty strong{margin-top:8px;color:#69645b;font-size:12px}.trash-empty p{margin:5px 0 0;font-size:9px}
+.trash-pane{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:hidden;background:#f4f1ea}.trash-header{display:flex;height:52px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 11px;border-bottom:1px solid #dfdad0}.trash-header>div{display:flex;min-width:0;align-items:center;gap:7px}.trash-header>div>button{display:grid;width:25px;height:25px;place-items:center;padding:0;border:0;border-radius:7px;color:#6f6960;background:transparent;cursor:pointer;font-size:20px}.trash-header>div>button:hover{background:#e8e5de}.trash-header strong{font-size:14px}.trash-header small{color:#999288;font-size:12px}.empty-trash{height:27px;padding:0 8px;border:1px solid #e0cac6;border-radius:7px;color:#984b44;background:#fff7f5;cursor:pointer;font-size:12px}.trash-hint{flex:0 0 auto;margin:0;padding:9px 13px;color:#918b81;background:#eeebe4;font-size:12px;line-height:1.5}.trash-list{min-height:0;flex:1;overflow-y:auto;padding:8px}.trash-item{margin-bottom:6px;padding:10px;border:1px solid #e0dbd1;border-radius:10px;background:#fffefa}.trash-item>div{display:flex;align-items:center;gap:7px}.trash-item strong{min-width:0;flex:1;overflow:hidden;color:#46423b;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.trash-item time{color:#9a9489;font-size:11px;white-space:nowrap}.trash-item p{margin:5px 0 8px;overflow:hidden;color:#898379;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.trash-item footer{display:flex;justify-content:flex-end;gap:5px}.trash-item footer button{height:25px;padding:0 8px;border:1px solid #d5ddd6;border-radius:6px;color:#45604d;background:#f1f5f1;cursor:pointer;font-size:12px}.trash-item footer button.danger{border-color:#ead2ce;color:#9a4c45;background:#fff5f3}.trash-empty{display:grid;height:100%;place-content:center;justify-items:center;color:#999288;text-align:center}.trash-empty span{font-size:30px}.trash-empty strong{margin-top:8px;color:#69645b;font-size:14px}.trash-empty p{margin:5px 0 0;font-size:12px}
 .trash-item footer button{border-color:var(--accent-border);color:var(--accent-strong);background:var(--accent-softest)}
 </style>

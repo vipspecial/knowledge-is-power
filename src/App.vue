@@ -74,7 +74,7 @@ const isMacOsDesktop =
   "__TAURI_INTERNALS__" in window && /Macintosh|Mac OS X/.test(navigator.userAgent);
 
 type ResizeTarget = "sidebar" | "ai";
-type ContextMenuKind = "knowledgeBase" | "note" | "trash";
+type ContextMenuKind = "knowledgeBase" | "note";
 
 interface ContextMenuState {
   kind: ContextMenuKind;
@@ -100,6 +100,7 @@ interface ResizeState {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let unlistenTrayToast: (() => void) | null = null;
 let hydrated = false;
 let resizeState: ResizeState | null = null;
 let metadataAiVersion = 0;
@@ -163,7 +164,7 @@ function openContextMenu(kind: ContextMenuKind, id: string, event: MouseEvent): 
   if (kind === "note") selectNote(id);
 
   const menuWidth = 184;
-  const estimatedHeight = kind === "note" ? 214 : kind === "knowledgeBase" ? 154 : 78;
+  const estimatedHeight = 98;
   contextMenu.value = {
     kind,
     id,
@@ -178,10 +179,6 @@ function openKnowledgeBaseContextMenu(id: string, event: MouseEvent): void {
 
 function openNoteContextMenu(id: string, event: MouseEvent): void {
   openContextMenu("note", id, event);
-}
-
-function openTrashContextMenu(id: string, event: MouseEvent): void {
-  openContextMenu("trash", id, event);
 }
 
 /** Keep native editing commands only where copy, paste or link actions are useful. */
@@ -290,10 +287,9 @@ const contextMenuItems = computed<ContextMenuItem[]>(() => {
   const menu = contextMenu.value;
   if (!menu) return [];
   if (menu.kind === "knowledgeBase") {
+    // 打开/新建已在栏内直接可点，右键只保留栏内不可见的操作。
     return [
-      { id: "open", label: "打开知识库", icon: "›" },
-      { id: "newNote", label: "新建文档", icon: "+" },
-      { id: "rename", label: "重命名", icon: "✎", separatorBefore: true },
+      { id: "rename", label: "重命名", icon: "✎" },
       {
         id: "delete",
         label: "删除知识库",
@@ -303,20 +299,10 @@ const contextMenuItems = computed<ContextMenuItem[]>(() => {
       },
     ];
   }
-  if (menu.kind === "trash") {
-    return [
-      { id: "restore", label: "恢复文档", icon: "↶" },
-      { id: "delete", label: "永久删除", icon: "×", danger: true, separatorBefore: true },
-    ];
-  }
 
-  const note = notes.value.find((item) => item.id === menu.id);
+  // 回收站项上已有恢复/删除按钮，不再提供右键菜单。
   return [
-    { id: "open", label: "打开文档", icon: "›" },
     { id: "newChild", label: "新建子文档", icon: "+" },
-    { id: "pin", label: note?.pinned ? "取消置顶" : "置顶文档", icon: "◆" },
-    { id: "duplicate", label: "创建副本", icon: "⧉" },
-    { id: "export", label: "导出 Markdown", icon: "↥", separatorBefore: true },
     { id: "trash", label: "移到回收站", icon: "×", danger: true, separatorBefore: true },
   ];
 });
@@ -551,25 +537,15 @@ function handleContextMenuAction(action: string): void {
   if (!menu) return;
   contextMenu.value = null;
 
-  if (menu.kind === "trash") {
-    if (action === "restore") restoreTrashedNote(menu.id);
-    else if (action === "delete") requestPermanentDelete(menu.id);
-    return;
-  }
-
   if (menu.kind === "knowledgeBase") {
     selectKnowledgeBase(menu.id);
-    if (action === "newNote") addNote();
-    else if (action === "rename") openRenameKnowledgeBase();
+    if (action === "rename") openRenameKnowledgeBase();
     else if (action === "delete") openDeleteKnowledgeBase();
     return;
   }
 
   selectNote(menu.id);
   if (action === "newChild") addChildNote(menu.id);
-  else if (action === "pin") togglePin();
-  else if (action === "duplicate") duplicateNote();
-  else if (action === "export") void exportMarkdown();
   else if (action === "trash") requestDelete();
 }
 
@@ -621,10 +597,27 @@ function updateSelection(selection: { text: string; from: number; to: number }):
 }
 
 function ensureAiReady(): boolean {
-  if (settings.value.ai.enabled) return true;
+  const ai = settings.value.ai;
+  const missing: string[] = [];
+  if (!ai.enabled) missing.push("启用 AI 助手");
+  if (!ai.baseUrl.trim()) missing.push("接口地址");
+  if (!ai.model.trim()) missing.push("模型");
+  // 自定义/本地服务（如 Ollama）可以无 Key，其余服务商都需要。
+  if (ai.provider !== "custom" && !hasApiKey.value) missing.push("API Key");
+  if (missing.length === 0) return true;
   openSettings("ai");
-  showToast("请先在设置中启用并配置 AI");
+  showToast(`请先在 AI 设置中完成配置：${missing.join("、")}`);
   return false;
+}
+
+function toggleAiPanel(): void {
+  if (!aiPanelOpen.value && !ensureAiReady()) return;
+  aiPanelOpen.value = !aiPanelOpen.value;
+}
+
+function openAiWriting(): void {
+  if (!ensureAiReady()) return;
+  showAiWritingDialog.value = true;
 }
 
 function runContextualAi(
@@ -856,7 +849,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (modifier && event.key.toLocaleLowerCase() === "j") {
     event.preventDefault();
-    showAiWritingDialog.value = true;
+    openAiWriting();
   }
   if (event.key === "Escape") {
     closeMenus();
@@ -900,6 +893,12 @@ onMounted(async () => {
   window.addEventListener("keydown", handleKeydown);
   window.addEventListener("click", closeMenus);
   window.addEventListener("resize", fitPanelsToWindow);
+  if ("__TAURI_INTERNALS__" in window) {
+    const { listen } = await import("@tauri-apps/api/event");
+    unlistenTrayToast = await listen("window-hidden-to-tray", () => {
+      showToast("已最小化到系统托盘，双击托盘图标可重新打开");
+    });
+  }
   try {
     const settingsView = await loadAppSettings();
     settings.value = settingsView.settings;
@@ -952,6 +951,7 @@ onBeforeUnmount(() => {
   document.body.classList.remove("panel-resizing");
   window.clearTimeout(saveTimer);
   window.clearTimeout(toastTimer);
+  void unlistenTrayToast?.();
 });
 </script>
 
@@ -1040,7 +1040,6 @@ onBeforeUnmount(() => {
       @restore="restoreTrashedNote"
       @remove="requestPermanentDelete"
       @empty="requestPermanentDelete('all')"
-      @context="openTrashContextMenu"
     />
 
     <div
@@ -1088,7 +1087,7 @@ onBeforeUnmount(() => {
             :class="{ active: aiPanelOpen }"
             type="button"
             title="打开 AI 助手"
-            @click="aiPanelOpen = !aiPanelOpen"
+            @click="toggleAiPanel"
           >
             <span>✦</span>AI
           </button>
@@ -1146,7 +1145,7 @@ onBeforeUnmount(() => {
           <template #actions>
             <div class="markdown-ai-tools">
               <button type="button" title="从当前文章结尾继续写" @click="runContextualAi('continue', '续写当前文章', 'append')"><span>✦</span>续写</button>
-              <button type="button" title="打开 AI 写作工作台" @click="showAiWritingDialog = true"><span>✦</span>写作</button>
+              <button type="button" title="打开 AI 写作工作台" @click="openAiWriting"><span>✦</span>写作</button>
               <div class="popup-menu-wrap" @click.stop>
                 <button type="button" title="更多 AI 工具" @click="toggleMenu('editorAi')">AI⌄</button>
                 <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">

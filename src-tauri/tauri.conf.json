@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "拿了桔子跑啊",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "identifier": "com.peter.mojian",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,12 +13,11 @@
     "windows": [
       {
         "title": "拿了桔子跑啊",
-        "width": 1320,
-        "height": 820,
+        "width": 1280,
+        "height": 800,
         "minWidth": 920,
         "minHeight": 620,
         "center": true,
-        "maximized": true,
         "resizable": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
@@ -33,9 +32,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/vipspecial/knowledge-is-power/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQTEzNkRBM0UzNUJENjIKUldSaXZUVSsyamFob1l2cmlFK1Y2dFUxVjZEUG10cXdpM1h3d1ZxRlcxUnFMNHBTaDhTWlJEcFgK"
+    }
+  },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "本地优先的 AI 知识库应用",

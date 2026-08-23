@@ -14,6 +14,12 @@ import {
   listAiModels,
   testAiConnection,
 } from "../settings";
+import {
+  checkForUpdates,
+  downloadAndInstallUpdate,
+  relaunchApp,
+  type Update,
+} from "../updater";
 import type { AiProtocol, AppSettings, NotesStore } from "../types";
 
 const props = defineProps<{
@@ -46,6 +52,12 @@ const modelCandidate = ref("");
 const discoveredModels = ref<string[]>([]);
 const modelsLoading = ref(false);
 const modelMessage = ref("");
+const updateState = ref<"idle" | "checking" | "available" | "downloading" | "restart" | "upToDate" | "error">("idle");
+const updateMessage = ref("");
+const updateVersion = ref("");
+const updateNotes = ref("");
+const updateProgress = ref(0);
+let pendingUpdate: Update | null = null;
 const originalProvider = props.settings.ai.provider;
 const providerRegion = ref<AiProviderRegion>(findAiProvider(draft.value.ai.provider).region);
 
@@ -220,6 +232,57 @@ async function removeApiKey(): Promise<void> {
   emit("keyCleared");
   testState.value = "idle";
   testMessage.value = "已从本地应用配置中移除 API Key";
+}
+
+async function checkForAppUpdates(): Promise<void> {
+  updateState.value = "checking";
+  updateMessage.value = "正在检查更新…";
+  updateVersion.value = "";
+  updateNotes.value = "";
+  updateProgress.value = 0;
+  pendingUpdate = null;
+  try {
+    const update = await checkForUpdates();
+    if (update) {
+      pendingUpdate = update;
+      updateVersion.value = update.version;
+      updateNotes.value = update.body ?? "";
+      updateState.value = "available";
+      updateMessage.value = `发现新版本 ${update.version}，可下载安装`;
+    } else {
+      updateState.value = "upToDate";
+      updateMessage.value = "已是最新版本";
+    }
+  } catch (error) {
+    updateState.value = "error";
+    updateMessage.value = `检查更新失败：${String(error)}`;
+  }
+}
+
+async function downloadAndInstallUpdateClick(): Promise<void> {
+  if (!pendingUpdate || updateState.value === "downloading" || updateState.value === "restart") return;
+  const update = pendingUpdate;
+  updateState.value = "downloading";
+  updateMessage.value = "正在下载更新…";
+  try {
+    await downloadAndInstallUpdate(update, (percent) => {
+      updateProgress.value = percent;
+    });
+    updateState.value = "restart";
+    updateMessage.value = "更新已安装，重启后生效";
+  } catch (error) {
+    updateState.value = "error";
+    updateMessage.value = `更新失败：${String(error)}`;
+  }
+}
+
+async function restartApp(): Promise<void> {
+  try {
+    await relaunchApp();
+  } catch (error) {
+    updateState.value = "error";
+    updateMessage.value = `重启失败：${String(error)}`;
+  }
 }
 
 function selectTab(tab: SettingsTab): void {
@@ -445,11 +508,35 @@ onMounted(async () => {
                 <p>版本 {{ appVersion || '…' }} · Tauri 2 · Rust · Vue 3</p>
               </div>
             </div>
-            <div class="update-card paused">
+            <div class="update-card" :class="{ available: updateState === 'available' || updateState === 'restart' }">
               <div>
                 <strong>版本更新</strong>
-                <p>自动更新暂未开放，请从 GitHub Releases 手动下载安装新版本。</p>
+                <p>{{ updateMessage || '检查新版本并在应用内完成下载与安装。' }}</p>
               </div>
+              <button
+                v-if="updateState === 'idle' || updateState === 'error' || updateState === 'upToDate'"
+                type="button"
+                @click="checkForAppUpdates"
+              >
+                检查更新
+              </button>
+              <button
+                v-else-if="updateState === 'available'"
+                type="button"
+                @click="downloadAndInstallUpdateClick"
+              >
+                下载并安装
+              </button>
+              <button
+                v-else-if="updateState === 'restart'"
+                type="button"
+                @click="restartApp"
+              >
+                重启应用
+              </button>
+              <span v-else class="update-busy">{{ updateState === 'checking' ? '检查中…' : updateProgress > 0 ? `${updateProgress}%` : '下载中…' }}</span>
+              <div v-if="updateState === 'downloading' && updateProgress > 0" class="update-progress"><i :style="{ width: `${updateProgress}%` }"></i></div>
+              <p v-if="updateNotes && (updateState === 'available' || updateState === 'downloading')" class="update-notes">{{ updateNotes }}</p>
             </div>
             <p class="privacy-note">你的文档默认保存在本机；只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。</p>
           </section>
@@ -470,15 +557,16 @@ onMounted(async () => {
 <style scoped>
 .settings-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:28px;background:rgb(29 28 24 / 38%);backdrop-filter:blur(7px)}
 .settings-dialog{display:grid;grid-template-columns:188px minmax(0,1fr);width:min(850px,100%);height:min(650px,calc(100vh - 56px));overflow:hidden;border:1px solid rgb(255 255 255 / 65%);border-radius:18px;background:#fbfaf7;box-shadow:0 30px 90px rgb(28 25 20 / 28%)}
-.settings-nav{padding:21px 13px;border-right:1px solid #ded9cf;background:#eeebe4}.settings-brand{display:flex;align-items:center;gap:10px;padding:0 7px 20px}.settings-brand img{width:35px;height:35px;border-radius:10px}.settings-brand div{display:flex;flex-direction:column}.settings-brand strong{font-size:15px}.settings-brand span{margin-top:2px;color:#979187;font-size:10px}.settings-nav nav{display:grid;gap:4px}.settings-nav nav button{display:flex;height:36px;align-items:center;gap:9px;padding:0 10px;border:0;border-radius:8px;color:#69645b;background:transparent;cursor:pointer;text-align:left;font-size:12px}.settings-nav nav button span{display:grid;width:19px;place-items:center;color:#818a82}.settings-nav nav button:hover{background:rgb(255 255 255 / 50%)}.settings-nav nav button.active{color:#344c3b;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 7%);font-weight:650}
-.settings-content{display:flex;min-width:0;min-height:0;flex-direction:column}.settings-content>header{display:flex;min-height:80px;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid #e8e4db}.settings-content h2,.settings-content p{margin:0}.settings-content h2{font-size:19px}.settings-content header p{margin-top:4px;color:#8d877d;font-size:11px}.settings-close{display:grid;width:30px;height:30px;place-items:center;border:0;border-radius:8px;color:#8b857b;background:transparent;cursor:pointer;font-size:22px}.settings-close:hover{background:#eeeae2}.settings-scroll{min-height:0;flex:1;overflow-y:auto;padding:24px 27px}.settings-section{display:grid;gap:14px}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:30px;padding:17px 0;border-bottom:1px solid #ece8df}.setting-row.vertical{display:grid;gap:15px}.setting-row label,.field>span{color:#3f3b34;font-size:13px;font-weight:650}.setting-row p{margin-top:5px;color:#969086;font-size:11px}.setting-row select,.field select,.field input:not([type=range]){height:37px;padding:0 10px;border:1px solid #dcd7cd;border-radius:8px;outline:0;color:#49453e;background:#fff;font-size:12px}.setting-row input[type=range],.field input[type=range]{width:100%;accent-color:#4d6654}
-.switch-row{display:flex;align-items:center;padding:15px;border:1px solid #dfe4dd;border-radius:11px;background:#f4f7f3;cursor:pointer}.switch-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.switch-row strong{font-size:13px}.switch-row small{margin-top:4px;color:#7f887f;font-size:10px}.switch-row input{position:absolute;opacity:0}.switch-row i{position:relative;width:37px;height:21px;border-radius:14px;background:#c5c7c1;transition:background .15s}.switch-row i:after{position:absolute;top:3px;left:3px;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgb(0 0 0 / 20%);content:"";transition:transform .15s}.switch-row input:checked+i{background:#52705b}.switch-row input:checked+i:after{transform:translateX(16px)}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:4px}.field-grid.disabled{opacity:.58}.field{display:grid;gap:7px}.field.full{grid-column:1/-1}.field small{color:#989187;font-size:10px;line-height:1.45}.api-key-field>div{display:flex}.api-key-field input{min-width:0;flex:1;border-radius:8px 0 0 8px!important}.api-key-field>div>button{padding:0 11px;border:1px solid #dcd7cd;border-left:0;border-radius:0 8px 8px 0;color:#69645b;background:#f3f0e9;cursor:pointer;font-size:11px}.clear-key{justify-self:start;padding:0;border:0;color:#a34f47;background:transparent;cursor:pointer;font-size:10px}.connection-test{display:flex;align-items:center;gap:11px;margin-top:7px}.connection-test button,.choose-directory{height:35px;padding:0 13px;border:1px solid #cfd8d0;border-radius:8px;color:#3e5b47;background:#eef3ee;cursor:pointer;font-size:11px;font-weight:650}.connection-test button:disabled,.choose-directory:disabled{opacity:.55;cursor:default}.connection-test span{min-width:0;overflow:hidden;color:#7e786f;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.connection-test span.success{color:#3e7650}.connection-test span.error{color:#a34b43}
-.provider-picker{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.75fr);gap:12px;margin-top:1px;padding:12px;border:1px solid #e5dfd5;border-radius:11px;background:#fff}.provider-picker.disabled{opacity:.58}.provider-regions{display:grid;grid-column:1/-1;grid-template-columns:repeat(3,1fr);gap:5px;padding:3px;border-radius:9px;background:#f1ede6}.provider-regions button{height:31px;border:0;border-radius:7px;color:#7b746a;background:transparent;cursor:pointer;font-size:11px}.provider-regions button.active{color:var(--accent-strong);background:#fff;box-shadow:0 2px 7px rgb(61 47 31 / 8%);font-weight:700}.provider-regions button:disabled{cursor:default}.provider-select{display:grid;gap:7px}.provider-select>span{color:#3f3b34;font-size:12px;font-weight:650}.provider-select select{height:37px;padding:0 10px;border:1px solid #dcd7cd;border-radius:8px;outline:0;color:#49453e;background:#fff;font-size:12px}.provider-summary{align-self:end;min-width:0;padding:8px 10px;border-radius:8px;background:var(--accent-softest)}.provider-summary strong{display:block;color:var(--accent-strong);font-size:11px}.provider-summary p{margin:3px 0 0;color:#8a8178;font-size:9px;line-height:1.45}.provider-key-warning{color:#a65a3e!important}
-.model-config{padding:11px;border:1px solid #e5e0d7;border-radius:10px;background:#fff}.model-active-row,.model-add-row{display:flex;gap:7px}.model-active-row select,.model-add-row input{min-width:0;flex:1}.model-active-row button,.model-add-row button{height:37px;flex:0 0 auto;padding:0 11px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:10px;font-weight:650}.model-active-row button:disabled,.model-add-row button:disabled{opacity:.55;cursor:default}.configured-models{display:flex;flex-wrap:wrap;gap:5px}.model-chip{display:flex;min-width:0;max-width:100%;overflow:hidden;border:1px solid #ded9d0;border-radius:7px;background:#f7f4ee}.model-chip.active{border-color:var(--accent-border);background:var(--accent-softest)}.model-chip button{height:27px;border:0;color:#6f685f;background:transparent;cursor:pointer;font-size:9px}.model-chip button:first-child{min-width:0;overflow:hidden;padding:0 8px;text-overflow:ellipsis;white-space:nowrap}.model-chip button:last-child{width:24px;flex:0 0 auto;border-left:1px solid rgb(0 0 0 / 6%);color:#9a7567}.model-chip.active button:first-child{color:var(--accent-strong);font-weight:700}.model-config code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.model-message{color:var(--accent-strong)!important}
+.settings-nav{padding:21px 13px;border-right:1px solid #ded9cf;background:#eeebe4}.settings-brand{display:flex;align-items:center;gap:10px;padding:0 7px 20px}.settings-brand img{width:35px;height:35px;border-radius:10px}.settings-brand div{display:flex;flex-direction:column}.settings-brand strong{font-size:16px}.settings-brand span{margin-top:2px;color:#979187;font-size:13px}.settings-nav nav{display:grid;gap:4px}.settings-nav nav button{display:flex;height:36px;align-items:center;gap:9px;padding:0 10px;border:0;border-radius:8px;color:#69645b;background:transparent;cursor:pointer;text-align:left;font-size:14px}.settings-nav nav button span{display:grid;width:19px;place-items:center;color:#818a82}.settings-nav nav button:hover{background:rgb(255 255 255 / 50%)}.settings-nav nav button.active{color:#344c3b;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 7%);font-weight:650}
+.settings-content{display:flex;min-width:0;min-height:0;flex-direction:column}.settings-content>header{display:flex;min-height:80px;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid #e8e4db}.settings-content h2,.settings-content p{margin:0}.settings-content h2{font-size:19px}.settings-content header p{margin-top:4px;color:#8d877d;font-size:13px}.settings-close{display:grid;width:30px;height:30px;place-items:center;border:0;border-radius:8px;color:#8b857b;background:transparent;cursor:pointer;font-size:22px}.settings-close:hover{background:#eeeae2}.settings-scroll{min-height:0;flex:1;overflow-y:auto;padding:24px 27px}.settings-section{display:grid;gap:14px}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:30px;padding:17px 0;border-bottom:1px solid #ece8df}.setting-row.vertical{display:grid;gap:15px}.setting-row label,.field>span{color:#3f3b34;font-size:15px;font-weight:650}.setting-row p{margin-top:5px;color:#969086;font-size:13px}.setting-row select,.field select,.field input:not([type=range]){height:37px;padding:0 10px;border:1px solid #dcd7cd;border-radius:8px;outline:0;color:#49453e;background:#fff;font-size:14px}.setting-row input[type=range],.field input[type=range]{width:100%;accent-color:#4d6654}
+.switch-row{display:flex;align-items:center;padding:15px;border:1px solid #dfe4dd;border-radius:11px;background:#f4f7f3;cursor:pointer}.switch-row>span{display:flex;min-width:0;flex:1;flex-direction:column}.switch-row strong{font-size:15px}.switch-row small{margin-top:4px;color:#7f887f;font-size:13px}.switch-row input{position:absolute;opacity:0}.switch-row i{position:relative;width:37px;height:21px;border-radius:14px;background:#c5c7c1;transition:background .15s}.switch-row i:after{position:absolute;top:3px;left:3px;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgb(0 0 0 / 20%);content:"";transition:transform .15s}.switch-row input:checked+i{background:#52705b}.switch-row input:checked+i:after{transform:translateX(16px)}.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:4px}.field-grid.disabled{opacity:.58}.field{display:grid;gap:7px}.field.full{grid-column:1/-1}.field small{color:#989187;font-size:13px;line-height:1.45}.api-key-field>div{display:flex}.api-key-field input{min-width:0;flex:1;border-radius:8px 0 0 8px!important}.api-key-field>div>button{padding:0 11px;border:1px solid #dcd7cd;border-left:0;border-radius:0 8px 8px 0;color:#69645b;background:#f3f0e9;cursor:pointer;font-size:13px}.clear-key{justify-self:start;padding:0;border:0;color:#a34f47;background:transparent;cursor:pointer;font-size:13px}.connection-test{display:flex;align-items:center;gap:11px;margin-top:7px}.connection-test button,.choose-directory{height:35px;padding:0 13px;border:1px solid #cfd8d0;border-radius:8px;color:#3e5b47;background:#eef3ee;cursor:pointer;font-size:13px;font-weight:650}.connection-test button:disabled,.choose-directory:disabled{opacity:.55;cursor:default}.connection-test span{min-width:0;overflow:hidden;color:#7e786f;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.connection-test span.success{color:#3e7650}.connection-test span.error{color:#a34b43}
+.provider-picker{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.75fr);gap:12px;margin-top:1px;padding:12px;border:1px solid #e5dfd5;border-radius:11px;background:#fff}.provider-picker.disabled{opacity:.58}.provider-regions{display:grid;grid-column:1/-1;grid-template-columns:repeat(3,1fr);gap:5px;padding:3px;border-radius:9px;background:#f1ede6}.provider-regions button{height:31px;border:0;border-radius:7px;color:#7b746a;background:transparent;cursor:pointer;font-size:13px}.provider-regions button.active{color:var(--accent-strong);background:#fff;box-shadow:0 2px 7px rgb(61 47 31 / 8%);font-weight:700}.provider-regions button:disabled{cursor:default}.provider-select{display:grid;gap:7px}.provider-select>span{color:#3f3b34;font-size:14px;font-weight:650}.provider-select select{height:37px;padding:0 10px;border:1px solid #dcd7cd;border-radius:8px;outline:0;color:#49453e;background:#fff;font-size:14px}.provider-summary{align-self:end;min-width:0;padding:8px 10px;border-radius:8px;background:var(--accent-softest)}.provider-summary strong{display:block;color:var(--accent-strong);font-size:13px}.provider-summary p{margin:3px 0 0;color:#8a8178;font-size:12px;line-height:1.45}.provider-key-warning{color:#a65a3e!important}
+.model-config{padding:11px;border:1px solid #e5e0d7;border-radius:10px;background:#fff}.model-active-row,.model-add-row{display:flex;gap:7px}.model-active-row select,.model-add-row input{min-width:0;flex:1}.model-active-row button,.model-add-row button{height:37px;flex:0 0 auto;padding:0 11px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:650}.model-active-row button:disabled,.model-add-row button:disabled{opacity:.55;cursor:default}.configured-models{display:flex;flex-wrap:wrap;gap:5px}.model-chip{display:flex;min-width:0;max-width:100%;overflow:hidden;border:1px solid #ded9d0;border-radius:7px;background:#f7f4ee}.model-chip.active{border-color:var(--accent-border);background:var(--accent-softest)}.model-chip button{height:27px;border:0;color:#6f685f;background:transparent;cursor:pointer;font-size:12px}.model-chip button:first-child{min-width:0;overflow:hidden;padding:0 8px;text-overflow:ellipsis;white-space:nowrap}.model-chip button:last-child{width:24px;flex:0 0 auto;border-left:1px solid rgb(0 0 0 / 6%);color:#9a7567}.model-chip.active button:first-child{color:var(--accent-strong);font-weight:700}.model-config code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.model-message{color:var(--accent-strong)!important}
 .model-chip button:disabled{cursor:default;opacity:.55}
-.storage-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid #e2ded5;border-radius:11px;background:#fff}.folder-icon{display:grid;width:40px;height:40px;place-items:center;border-radius:10px;color:#5c735f;background:#e9efe9}.storage-card>div:last-child{display:grid;min-width:0;gap:5px}.storage-card strong,.storage-info strong{font-size:12px}.storage-card code{overflow:hidden;color:#777168;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.choose-directory{justify-self:start}.storage-info{margin-top:10px;padding:16px;border-radius:10px;color:#767067;background:#f2efe8}.storage-info p{margin-top:7px;font-size:11px;line-height:1.55}.about-settings{padding:14px 4px}.about-product{display:flex;align-items:center;gap:14px;text-align:left}.about-product img{width:58px;height:58px;border-radius:16px;box-shadow:0 10px 30px rgb(50 66 54 / 16%)}.about-product h3{margin:0;font-size:17px}.about-product p,.privacy-note{margin-top:5px;color:#7f796f;font-size:10px;line-height:1.65}.update-card{position:relative;display:grid;grid-template-columns:1fr auto;gap:5px 16px;margin-top:7px;padding:16px;border:1px solid #e3ded4;border-radius:12px;background:#fff;text-align:left}.update-card>div:first-child{min-width:0}.update-card strong{font-size:12px}.update-card p{margin:5px 0 0;color:#878076;font-size:10px;line-height:1.55}.update-card>button{height:33px;align-self:center;padding:0 12px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:10px;font-weight:700}.update-card>button:disabled{opacity:.58;cursor:default}.update-card.available{border-color:var(--accent-border);background:#fffaf5}.update-progress{grid-column:1/-1;height:4px!important;margin-top:7px;overflow:hidden;border-radius:99px;background:#eee8df}.update-progress i{display:block;height:100%;border-radius:inherit;background:var(--accent-solid);transition:width .18s}.update-notes{grid-column:1/-1;max-height:64px;overflow:auto;white-space:pre-line}.privacy-note{max-width:500px;margin:3px 0 0!important}
-.directory-message{margin:0;color:#54715c!important;font-size:10px!important}
-.settings-content>footer{display:flex;min-height:63px;align-items:center;justify-content:space-between;padding:12px 25px;border-top:1px solid #e8e4db}.settings-content footer>span{color:#aaa399;font-size:10px}.settings-content footer div{display:flex;gap:8px}.settings-content footer button{height:34px;padding:0 14px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:650}.settings-content footer .cancel{border:1px solid #ddd8cf;background:#fffefa}.settings-content footer .save{border:1px solid #4d6654;color:#fff;background:#4d6654}.settings-content footer .save:disabled{opacity:.55}
+.storage-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid #e2ded5;border-radius:11px;background:#fff}.folder-icon{display:grid;width:40px;height:40px;place-items:center;border-radius:10px;color:#5c735f;background:#e9efe9}.storage-card>div:last-child{display:grid;min-width:0;gap:5px}.storage-card strong,.storage-info strong{font-size:14px}.storage-card code{overflow:hidden;color:#777168;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.choose-directory{justify-self:start}.storage-info{margin-top:10px;padding:16px;border-radius:10px;color:#767067;background:#f2efe8}.storage-info p{margin-top:7px;font-size:13px;line-height:1.55}.about-settings{padding:14px 4px}.about-product{display:flex;align-items:center;gap:14px;text-align:left}.about-product img{width:58px;height:58px;border-radius:16px;box-shadow:0 10px 30px rgb(50 66 54 / 16%)}.about-product h3{margin:0;font-size:17px}.about-product p,.privacy-note{margin-top:5px;color:#7f796f;font-size:13px;line-height:1.65}.update-card{position:relative;display:grid;grid-template-columns:1fr auto;gap:5px 16px;margin-top:7px;padding:16px;border:1px solid #e3ded4;border-radius:12px;background:#fff;text-align:left}.update-card>div:first-child{min-width:0}.update-card strong{font-size:14px}.update-card p{margin:5px 0 0;color:#878076;font-size:13px;line-height:1.55}.update-card>button{height:33px;align-self:center;padding:0 12px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:700}.update-card>button:disabled{opacity:.58;cursor:default}.update-card.available{border-color:var(--accent-border);background:#fffaf5}
+.update-busy{align-self:center;color:var(--accent-strong);font-size:13px;font-weight:700}.update-progress{grid-column:1/-1;height:4px!important;margin-top:7px;overflow:hidden;border-radius:99px;background:#eee8df}.update-progress i{display:block;height:100%;border-radius:inherit;background:var(--accent-solid);transition:width .18s}.update-notes{grid-column:1/-1;max-height:64px;overflow:auto;white-space:pre-line}.privacy-note{max-width:500px;margin:3px 0 0!important}
+.directory-message{margin:0;color:#54715c!important;font-size:13px!important}
+.settings-content>footer{display:flex;min-height:63px;align-items:center;justify-content:space-between;padding:12px 25px;border-top:1px solid #e8e4db}.settings-content footer>span{color:#aaa399;font-size:13px}.settings-content footer div{display:flex;gap:8px}.settings-content footer button{height:34px;padding:0 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:650}.settings-content footer .cancel{border:1px solid #ddd8cf;background:#fffefa}.settings-content footer .save{border:1px solid #4d6654;color:#fff;background:#4d6654}.settings-content footer .save:disabled{opacity:.55}
 @media(max-width:760px){.settings-dialog{grid-template-columns:145px minmax(0,1fr)}.settings-nav{padding:18px 8px}.settings-brand{padding-left:5px}.settings-scroll{padding:20px}.field-grid,.provider-picker{grid-template-columns:1fr}.field,.provider-select,.provider-summary{grid-column:1/-1}}
 .settings-nav nav button.active{color:var(--accent-strong);background:var(--accent-softest)}
 .setting-row input[type=range],.field input[type=range]{accent-color:var(--accent)}

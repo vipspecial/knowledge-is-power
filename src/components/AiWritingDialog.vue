@@ -3,6 +3,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { computed, onBeforeUnmount, ref } from "vue";
 import { createDocumentAiRequest, streamAi } from "../ai";
+import { createStreamPacer } from "../streaming";
 import type { AiOperation, Note } from "../types";
 
 interface WritingTemplate {
@@ -77,6 +78,9 @@ const output = ref("");
 const errorMessage = ref("");
 const busy = ref(false);
 let taskVersion = 0;
+const streamPacer = createStreamPacer((chunk) => {
+  output.value += chunk;
+});
 
 const selectedTemplate = computed(
   () => templates.find((template) => template.id === selectedTemplateId.value) ?? templates[0],
@@ -93,6 +97,7 @@ async function generate(): Promise<void> {
   output.value = "";
   errorMessage.value = "";
   busy.value = true;
+  streamPacer.reset();
   const prompt = `${selectedTemplate.value.instruction}\n\n用户补充要求：${requirements.value.trim() || "无"}`;
   const request = createDocumentAiRequest(
     props.note,
@@ -103,14 +108,18 @@ async function generate(): Promise<void> {
   try {
     await streamAi(request, (event) => {
       if (version !== taskVersion || props.note.id !== sourceDocumentId) return;
-      if (event.event === "delta") output.value += event.content;
+      if (event.event === "delta") streamPacer.push(event.content);
       if (event.event === "error") streamError = event.message;
     });
     if (version !== taskVersion || props.note.id !== sourceDocumentId) return;
+    await streamPacer.flush();
     if (streamError) errorMessage.value = streamError;
     if (!output.value.trim() && !streamError) errorMessage.value = "模型没有返回内容";
   } catch (error) {
-    if (version === taskVersion) errorMessage.value = String(error);
+    if (version === taskVersion) {
+      await streamPacer.flush();
+      errorMessage.value = String(error);
+    }
   } finally {
     if (version === taskVersion) busy.value = false;
   }
@@ -125,6 +134,7 @@ function apply(mode: "insert" | "replace"): void {
 
 onBeforeUnmount(() => {
   taskVersion += 1;
+  streamPacer.reset();
 });
 </script>
 
@@ -204,12 +214,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .writing-backdrop{position:fixed;z-index:55;inset:0;display:grid;place-items:center;padding:28px;background:rgb(29 27 23 / 42%);backdrop-filter:blur(7px)}
 .writing-dialog{display:flex;width:min(900px,100%);height:min(690px,calc(100vh - 56px));overflow:hidden;flex-direction:column;border:1px solid rgb(255 255 255 / 70%);border-radius:18px;background:#fbfaf7;box-shadow:0 30px 90px rgb(26 23 18 / 30%)}
-header{display:flex;min-height:68px;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid #e5e1d8}header>div{display:flex;min-width:0;align-items:center;gap:11px}header>div>span{display:grid;width:35px;height:35px;place-items:center;border-radius:10px;color:#fff;background:#506b57}header h2,header p{margin:0}header h2{font-size:17px}header p{margin-top:3px;overflow:hidden;color:#8d877d;font-size:10px;text-overflow:ellipsis;white-space:nowrap}header>button{display:grid;width:30px;height:30px;place-items:center;border:0;border-radius:8px;color:#89837a;background:transparent;cursor:pointer;font-size:22px}header>button:hover{background:#eeeae2}
-.writing-content{display:grid;min-height:0;flex:1;grid-template-columns:220px minmax(0,1fr)}.writing-templates{display:grid;align-content:start;gap:5px;padding:14px 10px;border-right:1px solid #e2ddd4;background:#f0ede6}.writing-templates>button{display:flex;min-height:57px;align-items:center;gap:10px;padding:8px 9px;border:1px solid transparent;border-radius:10px;color:#656057;background:transparent;cursor:pointer;text-align:left}.writing-templates>button:hover{background:rgb(255 255 255 / 55%)}.writing-templates>button.active{border-color:#dce2dc;color:#36523e;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 6%)}.writing-templates>button>span{display:grid;width:30px;height:30px;flex:0 0 auto;place-items:center;border-radius:8px;color:#55705d;background:#e6ede7;font-family:"Songti SC","SimSun",serif}.writing-templates div{display:flex;min-width:0;flex-direction:column}.writing-templates strong{font-size:12px}.writing-templates small{margin-top:3px;overflow:hidden;color:#969087;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
-.writing-main{display:flex;min-width:0;min-height:0;flex-direction:column;padding:18px 20px}.writing-main>label{display:grid;gap:7px}.writing-main>label>span{font-size:12px;font-weight:650}.writing-main textarea{width:100%;resize:none;padding:10px 11px;border:1px solid #dcd7cd;border-radius:9px;outline:0;color:#454139;background:#fff;font-size:12px;line-height:1.6}.writing-main textarea:focus{border-color:#85988a;box-shadow:0 0 0 3px rgb(77 102 84 / 9%)}.writing-boundary{display:flex;align-items:center;gap:6px;margin:8px 0;color:#7d877f;font-size:9px}.writing-boundary i{width:6px;height:6px;border-radius:50%;background:#6e9077}.generate-button{align-self:flex-start;height:34px;padding:0 14px;border:0;border-radius:8px;color:#fff;background:#4d6654;cursor:pointer;font-size:11px;font-weight:650}.generate-button:disabled{opacity:.6;cursor:default}
-.writing-output{min-height:0;flex:1;overflow-y:auto;margin-top:12px;padding:16px 18px;border:1px solid #e4dfd6;border-radius:10px;background:#fffefa}.writing-markdown{color:#49453e;font-family:"Songti SC",STSong,Georgia,"SimSun",serif;font-size:14px;line-height:1.8;overflow-wrap:anywhere}.writing-markdown :deep(:first-child){margin-top:0}.writing-markdown :deep(:last-child){margin-bottom:0}.writing-markdown :deep(pre){overflow:auto;padding:12px;border-radius:7px;color:#eee;background:#302f2b}.writing-empty,.writing-loading{display:grid;height:100%;place-content:center;justify-items:center;color:#989187;text-align:center}.writing-empty>span{display:grid;width:42px;height:42px;place-items:center;border-radius:13px;color:#55705d;background:#e8eee8;font-size:18px}.writing-empty p{max-width:320px;margin:10px 0 0;font-size:11px;line-height:1.65}.writing-loading{grid-template-columns:repeat(3,5px) auto;gap:4px}.writing-loading i{width:5px;height:5px;border-radius:50%;background:#6f8575;animation:pulse 1s infinite}.writing-loading i:nth-child(2){animation-delay:.15s}.writing-loading i:nth-child(3){animation-delay:.3s}.writing-loading span{margin-left:6px;font-size:11px}@keyframes pulse{50%{opacity:.3;transform:translateY(-2px)}}.writing-error{margin:7px 0 0;color:#a14c45;font-size:10px}
-footer{display:flex;min-height:58px;align-items:center;justify-content:space-between;padding:10px 19px;border-top:1px solid #e5e1d8}footer>span{color:#989187;font-size:9px}footer>div{display:flex;gap:7px}footer button,.writing-disabled button{height:34px;padding:0 13px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:650}footer button:disabled{opacity:.45;cursor:default}.secondary{border:1px solid #dcd7cd;background:#fffefa}.primary,.writing-disabled button{border:1px solid #4d6654;color:#fff;background:#4d6654}
-.writing-disabled{display:grid;flex:1;place-content:center;justify-items:center;text-align:center}.writing-disabled>span{display:grid;width:54px;height:54px;place-items:center;border-radius:16px;color:#53705b;background:#e6ede7;font-size:22px}.writing-disabled h3{margin:14px 0 0}.writing-disabled p{margin:7px 0 16px;color:#888178;font-size:11px}
+header{display:flex;min-height:68px;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid #e5e1d8}header>div{display:flex;min-width:0;align-items:center;gap:11px}header>div>span{display:grid;width:35px;height:35px;place-items:center;border-radius:10px;color:#fff;background:#506b57}header h2,header p{margin:0}header h2{font-size:17px}header p{margin-top:3px;overflow:hidden;color:#8d877d;font-size:13px;text-overflow:ellipsis;white-space:nowrap}header>button{display:grid;width:30px;height:30px;place-items:center;border:0;border-radius:8px;color:#89837a;background:transparent;cursor:pointer;font-size:22px}header>button:hover{background:#eeeae2}
+.writing-content{display:grid;min-height:0;flex:1;grid-template-columns:220px minmax(0,1fr)}.writing-templates{display:grid;align-content:start;gap:5px;padding:14px 10px;border-right:1px solid #e2ddd4;background:#f0ede6}.writing-templates>button{display:flex;min-height:57px;align-items:center;gap:10px;padding:8px 9px;border:1px solid transparent;border-radius:10px;color:#656057;background:transparent;cursor:pointer;text-align:left}.writing-templates>button:hover{background:rgb(255 255 255 / 55%)}.writing-templates>button.active{border-color:#dce2dc;color:#36523e;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 6%)}.writing-templates>button>span{display:grid;width:30px;height:30px;flex:0 0 auto;place-items:center;border-radius:8px;color:#55705d;background:#e6ede7;font-family:"Songti SC","SimSun",serif}.writing-templates div{display:flex;min-width:0;flex-direction:column}.writing-templates strong{font-size:14px}.writing-templates small{margin-top:3px;overflow:hidden;color:#969087;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.writing-main{display:flex;min-width:0;min-height:0;flex-direction:column;padding:18px 20px}.writing-main>label{display:grid;gap:7px}.writing-main>label>span{font-size:14px;font-weight:650}.writing-main textarea{width:100%;resize:none;padding:10px 11px;border:1px solid #dcd7cd;border-radius:9px;outline:0;color:#454139;background:#fff;font-size:14px;line-height:1.6}.writing-main textarea:focus{border-color:#85988a;box-shadow:0 0 0 3px rgb(77 102 84 / 9%)}.writing-boundary{display:flex;align-items:center;gap:6px;margin:8px 0;color:#7d877f;font-size:12px}.writing-boundary i{width:6px;height:6px;border-radius:50%;background:#6e9077}.generate-button{align-self:flex-start;height:34px;padding:0 14px;border:0;border-radius:8px;color:#fff;background:#4d6654;cursor:pointer;font-size:13px;font-weight:650}.generate-button:disabled{opacity:.6;cursor:default}
+.writing-output{min-height:0;flex:1;overflow-y:auto;margin-top:12px;padding:16px 18px;border:1px solid #e4dfd6;border-radius:10px;background:#fffefa}.writing-markdown{color:#49453e;font-family:"Songti SC",STSong,Georgia,"SimSun",serif;font-size:15px;line-height:1.8;overflow-wrap:anywhere}.writing-markdown :deep(:first-child){margin-top:0}.writing-markdown :deep(:last-child){margin-bottom:0}.writing-markdown :deep(pre){overflow:auto;padding:12px;border-radius:7px;color:#eee;background:#302f2b}.writing-empty,.writing-loading{display:grid;height:100%;place-content:center;justify-items:center;color:#989187;text-align:center}.writing-empty>span{display:grid;width:42px;height:42px;place-items:center;border-radius:13px;color:#55705d;background:#e8eee8;font-size:18px}.writing-empty p{max-width:320px;margin:10px 0 0;font-size:13px;line-height:1.65}.writing-loading{grid-template-columns:repeat(3,5px) auto;gap:4px}.writing-loading i{width:5px;height:5px;border-radius:50%;background:#6f8575;animation:pulse 1s infinite}.writing-loading i:nth-child(2){animation-delay:.15s}.writing-loading i:nth-child(3){animation-delay:.3s}.writing-loading span{margin-left:6px;font-size:13px}@keyframes pulse{50%{opacity:.3;transform:translateY(-2px)}}.writing-error{margin:7px 0 0;color:#a14c45;font-size:13px}
+footer{display:flex;min-height:58px;align-items:center;justify-content:space-between;padding:10px 19px;border-top:1px solid #e5e1d8}footer>span{color:#989187;font-size:12px}footer>div{display:flex;gap:7px}footer button,.writing-disabled button{height:34px;padding:0 13px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:650}footer button:disabled{opacity:.45;cursor:default}.secondary{border:1px solid #dcd7cd;background:#fffefa}.primary,.writing-disabled button{border:1px solid #4d6654;color:#fff;background:#4d6654}
+.writing-disabled{display:grid;flex:1;place-content:center;justify-items:center;text-align:center}.writing-disabled>span{display:grid;width:54px;height:54px;place-items:center;border-radius:16px;color:#53705b;background:#e6ede7;font-size:22px}.writing-disabled h3{margin:14px 0 0}.writing-disabled p{margin:7px 0 16px;color:#888178;font-size:13px}
 @media(max-width:720px){.writing-backdrop{padding:14px}.writing-content{grid-template-columns:150px minmax(0,1fr)}.writing-templates small{display:none}.writing-main{padding:14px}.writing-dialog{height:calc(100vh - 28px)}footer>span{display:none}}
 header>div>span,.generate-button,.primary,.writing-disabled button{border-color:var(--accent-solid);background:var(--accent-solid)}
 .writing-templates>button.active{border-color:var(--accent-border);color:var(--accent-strong);background:var(--accent-softest)}

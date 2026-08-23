@@ -45,5 +45,6 @@ git diff --check
 - `.github/workflows/build-desktop.yml` 在推送 `v*` 标签时检查并构建：macOS Universal DMG、Windows x64 NSIS EXE、Linux x64 DEB 与 AppImage，然后发布 GitHub Release。
 - 手动触发桌面工作流只构建附件，不会在无标签时发布 Release。
 - `.github/workflows/deploy-pages.yml` 在 `website/**` 或工作流自身变更推送到 `main` 后部署宣传页。
-- 应用内自动更新已暂停：`createUpdaterArtifacts` 保持 `false`，CI 不读取更新私钥、不生成签名压缩包或 `latest.json`。
-- 恢复自动更新必须作为独立任务设计，完整处理签名密钥、GitHub Secrets、各平台签名产物、更新 JSON、端点和升级验证；不能为消除一次 CI 错误而临时拼接签名步骤。
+- 应用内自动更新已启用：`createUpdaterArtifacts` 为 `true`，CI 从 GitHub Secrets 读取 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 生成各平台 `.sig` 签名，Release 任务用 `scripts/generate-update-manifest.mjs` 汇总生成 `latest.json` 并随安装包一起发布。
+- 更新公钥内嵌在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`；更换密钥对、更新端点或调整签名方式必须作为独立任务处理并同步端到端验证升级链路，不能只为消除一次 CI 错误而临时改动。
+- Secrets 缺失时打标签构建仍会执行，但产物无签名，`latest.json` 会因缺 `.sig` 而不完整；发布前确认 Secrets 已配置。
