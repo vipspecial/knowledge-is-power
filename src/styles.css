@@ -10,7 +10,6 @@
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: #25231f;
   background: #eeeae1;
-  font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
@@ -508,7 +507,7 @@ body.panel-resizing {
   color: #f8f3e9;
   background: #343128;
   box-shadow: 0 4px 12px rgb(55 48 35 / 14%);
-  font-family: "Songti SC", STSong, serif;
+  font-family: "Songti SC", STSong, "SimSun", serif;
   font-size: 21px;
 }
 
@@ -526,7 +525,7 @@ body.panel-resizing {
 }
 
 .brand-row h1 {
-  font-family: "Songti SC", STSong, serif;
+  font-family: "Songti SC", STSong, "SimSun", serif;
   overflow: hidden;
   font-size: 16px;
   font-weight: 700;
@@ -1081,7 +1080,7 @@ kbd {
   outline: none;
   color: #292720;
   background: transparent;
-  font-family: "Songti SC", STSong, Georgia, serif;
+  font-family: "Songti SC", STSong, Georgia, "SimSun", serif;
   font-size: clamp(23px, 2.2vw, 30px);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -1248,7 +1247,7 @@ kbd {
 .empty-editor h2 {
   margin: 0;
   color: #4f4b43;
-  font-family: "Songti SC", STSong, serif;
+  font-family: "Songti SC", STSong, "SimSun", serif;
   font-size: 22px;
 }
 
