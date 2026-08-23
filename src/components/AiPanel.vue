@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
       <div>
         <span class="ai-mark">✦</span>
         <div>
-          <strong>文档助手</strong>
+          <strong>AI 助手</strong>
           <small>仅处理当前文章</small>
         </div>
       </div>
