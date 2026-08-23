@@ -90,7 +90,7 @@ fn setup_close_to_tray(app: &tauri::App) -> tauri::Result<()> {
     };
     let app_handle = app.handle().clone();
     window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api } = event {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
             if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
                 let _ = window.hide();
