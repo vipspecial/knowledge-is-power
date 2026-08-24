@@ -514,19 +514,6 @@ function togglePin(): void {
   showToast(selectedNote.value.pinned ? "笔记已置顶" : "已取消置顶");
 }
 
-function duplicateNote(): void {
-  if (!selectedNote.value) return;
-  const duplicated = makeNote(
-    `${displayTitle(selectedNote.value)} 副本`,
-    selectedNote.value.content,
-    selectedNote.value.parentId,
-  );
-  duplicated.tags = [...selectedNote.value.tags];
-  notes.value.push(duplicated);
-  selectedId.value = duplicated.id;
-  showToast("已创建笔记副本");
-}
-
 function updateTags(event: Event): void {
   if (!selectedNote.value) return;
   const input = event.target as HTMLInputElement;
@@ -1168,8 +1155,6 @@ onBeforeUnmount(() => {
           <div class="popup-menu-wrap" @click.stop>
             <button class="icon-button" type="button" title="更多文档操作" aria-label="更多文档操作" @click="toggleMenu('document')">•••</button>
             <div v-if="documentMenuOpen" class="popup-menu document-popup" role="menu">
-              <button type="button" role="menuitem" @click="addChildNote(selectedNote.id); closeMenus()">新建子文档</button>
-              <button type="button" role="menuitem" @click="duplicateNote(); closeMenus()">创建副本</button>
               <button type="button" role="menuitem" @click="exportMarkdown(); closeMenus()">导出 Markdown</button>
               <span></span>
               <button class="danger" type="button" role="menuitem" @click="requestDelete(); closeMenus()">删除笔记</button>

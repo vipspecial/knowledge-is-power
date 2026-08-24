@@ -4,7 +4,7 @@ mod mcp;
 mod models;
 mod settings;
 
-use ai::{list_ai_models, stream_ai, test_ai_connection};
+use ai::{abort_ai_stream, list_ai_models, stream_ai, test_ai_connection};
 use library::{
     choose_document_directory, export_markdown, import_markdown, load_store, save_store,
 };
@@ -46,6 +46,7 @@ pub fn run() {
             get_mcp_setup_info,
             set_mcp_enabled,
             stream_ai,
+            abort_ai_stream,
             test_ai_connection,
             list_ai_models
         ])

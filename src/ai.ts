@@ -31,3 +31,9 @@ export async function streamAi(
   channel.onmessage = onEvent;
   await invoke("stream_ai", { request, onEvent: channel });
 }
+
+export function abortAiStream(): void {
+  if ("__TAURI_INTERNALS__" in window) {
+    void invoke("abort_ai_stream");
+  }
+}

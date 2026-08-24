@@ -143,5 +143,6 @@ pub(crate) enum AiStreamEvent {
     Started,
     Delta { content: String },
     Done,
+    Aborted,
     Error { message: String },
 }

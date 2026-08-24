@@ -5,9 +5,13 @@ use crate::{
 use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::ipc::Channel;
 
 const MAX_MODEL_LIST_BYTES: usize = 2 * 1024 * 1024;
+
+/// 同一时刻只允许一个流式请求，用全局标志即可表达“停止当前生成”。
+static STREAM_ABORTED: AtomicBool = AtomicBool::new(false);
 
 fn endpoint(base_url: &str, protocol: &str) -> String {
     let base = base_url.trim().trim_end_matches('/');
@@ -304,6 +308,7 @@ pub(crate) async fn stream_ai(
     if !settings.enabled {
         return Err("请先在设置中启用并配置 AI".to_string());
     }
+    STREAM_ABORTED.store(false, Ordering::SeqCst);
     validate_ai_settings(&settings)?;
     apply_request_model(&mut settings, &request.model)?;
     let (system, user) = build_prompts(&request, settings.max_context_chars);
@@ -380,6 +385,10 @@ pub(crate) async fn stream_ai(
     let mut stream = response.bytes_stream();
     let mut pending = Vec::<u8>::new();
     while let Some(chunk) = stream.next().await {
+        if STREAM_ABORTED.load(Ordering::SeqCst) {
+            let _ = on_event.send(AiStreamEvent::Aborted);
+            return Ok(());
+        }
         let chunk = chunk.map_err(|error| format!("读取 AI 流式响应失败：{error}"))?;
         pending.extend_from_slice(&chunk);
         while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
@@ -397,6 +406,11 @@ pub(crate) async fn stream_ai(
     }
     let _ = on_event.send(AiStreamEvent::Done);
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn abort_ai_stream() {
+    STREAM_ABORTED.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -504,6 +518,28 @@ mod tests {
             note_title: "当前文档".to_string(),
             note_content: "当前文档正文".to_string(),
         }
+    }
+
+    #[test]
+    fn serializes_stream_events_with_camel_case_tags() {
+        let started = serde_json::to_value(AiStreamEvent::Started).unwrap();
+        let aborted = serde_json::to_value(AiStreamEvent::Aborted).unwrap();
+        let error = serde_json::to_value(AiStreamEvent::Error {
+            message: "失败".to_string(),
+        })
+        .unwrap();
+        assert_eq!(started, json!({"event": "started"}));
+        assert_eq!(aborted, json!({"event": "aborted"}));
+        assert_eq!(error, json!({"event": "error", "message": "失败"}));
+    }
+
+    #[test]
+    fn abort_flag_round_trips() {
+        STREAM_ABORTED.store(false, Ordering::SeqCst);
+        assert!(!STREAM_ABORTED.load(Ordering::SeqCst));
+        abort_ai_stream();
+        assert!(STREAM_ABORTED.load(Ordering::SeqCst));
+        STREAM_ABORTED.store(false, Ordering::SeqCst);
     }
 
     #[test]

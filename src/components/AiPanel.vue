@@ -2,7 +2,7 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
-import { createDocumentAiRequest, streamAi } from "../ai";
+import { abortAiStream, createDocumentAiRequest, streamAi } from "../ai";
 import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "../browserStorage";
 import { createStreamPacer } from "../streaming";
 import type {
@@ -194,6 +194,7 @@ async function runRequest(options: RunOptions): Promise<void> {
     modelForDocument(options.note.id),
   );
   let streamError = "";
+  let userAborted = false;
   try {
     await streamAi(request, (event) => {
       if (event.event === "delta") {
@@ -201,10 +202,13 @@ async function runRequest(options: RunOptions): Promise<void> {
         streamPacer.push(event.content);
       }
       if (event.event === "error") streamError = event.message;
+      if (event.event === "aborted") userAborted = true;
     });
     await streamPacer.flush();
     assistant.pending = false;
-    if (streamError) {
+    if (userAborted) {
+      if (!assistant.content.trim()) assistant.content = "已停止生成。";
+    } else if (streamError) {
       assistant.content = assistant.content
         ? `${assistant.content}\n\n> ${streamError}`
         : streamError;
@@ -259,6 +263,12 @@ function runChat(prompt: string): void {
 function sendChat(): void {
   const value = chatInput.value.trim();
   if (value) runChat(value);
+}
+
+function stopGeneration(): void {
+  if (!busy.value) return;
+  taskQueue.length = 0;
+  abortAiStream();
 }
 
 function messageActionLabel(message: AiMessage): string {
@@ -371,7 +381,8 @@ onBeforeUnmount(() => {
             </select>
           </label>
           <span class="composer-hint">{{ busy ? '正在生成…' : 'Enter 发送' }}</span>
-          <button type="button" :disabled="busy || !note || !chatInput.trim()" aria-label="发送" @click="sendChat">↑</button>
+          <button v-if="busy" type="button" class="stop-button" aria-label="停止生成" title="停止生成" @click="stopGeneration">■</button>
+          <button v-else type="button" :disabled="!note || !chatInput.trim()" aria-label="发送" @click="sendChat">↑</button>
         </div>
       </footer>
     </template>
@@ -389,6 +400,7 @@ onBeforeUnmount(() => {
 .ai-panel{display:flex;min-width:0;min-height:0;flex-direction:column;background:#f7f5f0}.ai-header{display:flex;height:62px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #e4e0d7}.ai-header>div{display:flex;align-items:center;gap:9px}.ai-mark{display:grid;width:31px;height:31px;place-items:center;border-radius:9px;color:#f8f4ea;background:linear-gradient(145deg,#5b7863,#354c3c);font-size:15px}.ai-header>div>div{display:flex;flex-direction:column}.ai-header strong{font-size:15px}.ai-header small{margin-top:2px;color:#969086;font-size:12px}.ai-header>button{display:grid;width:28px;height:28px;place-items:center;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:20px}.ai-header>button:hover{background:#ebe7df}.ai-context{display:flex;height:34px;flex:0 0 auto;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #eae6de;color:#827c72}.ai-context span{width:6px;height:6px;border-radius:50%;background:#729079}.ai-context p{min-width:0;overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ai-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:10px 11px;border-bottom:1px solid #e6e2d9}.ai-actions button{display:flex;height:31px;align-items:center;justify-content:center;gap:5px;border:1px solid #e0dcd3;border-radius:7px;color:#615d55;background:#fffefa;cursor:pointer;font-size:13px}.ai-actions button:hover:not(:disabled){border-color:#bdcbbf;color:#3f6249;background:#f0f5f0}.ai-actions button:disabled{opacity:.45;cursor:default}.ai-actions button span{color:#55705d;font-size:13px}.ai-messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:15px 13px}.ai-messages::-webkit-scrollbar{width:8px}.ai-messages::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#c9c3b8;background-clip:padding-box}.ai-welcome{display:grid;justify-items:center;padding:34px 15px;text-align:center}.ai-welcome>div{display:grid;width:43px;height:43px;place-items:center;margin-bottom:11px;border-radius:13px;color:#52705b;background:#e6eee7;font-size:19px}.ai-welcome h3{margin:0;color:#48443d;font-size:15px}.ai-welcome p{margin:8px 0 17px;color:#8b857c;font-size:13px;line-height:1.6}.ai-welcome button{width:100%;margin-bottom:6px;padding:8px 10px;border:1px solid #e0dcd3;border-radius:7px;color:#69645b;background:#fffefa;cursor:pointer;font-size:13px;text-align:left}.ai-welcome button:hover{border-color:#bdcbbf;color:#3e5f48}.ai-message{display:flex;gap:7px;margin-bottom:14px}.ai-message.user{justify-content:flex-end}.message-avatar{display:grid;width:23px;height:23px;flex:0 0 auto;place-items:center;border-radius:7px;color:#fff;background:#58715f;font-size:12px}.message-content{min-width:0;max-width:calc(100% - 30px)}.user .message-content{padding:8px 10px;border-radius:10px 10px 3px 10px;color:#f9f7f1;background:#536c5b;font-size:13px;line-height:1.55}.assistant .message-content{flex:1;padding:10px 11px;border:1px solid #e3dfd6;border-radius:3px 10px 10px;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 4%)}.assistant.error .message-content{border-color:#e5c6c1;background:#fff4f2}.message-operation{display:flex;align-items:center;gap:5px;margin-bottom:5px;color:var(--accent-strong);font-size:12px;font-weight:700}.message-operation span{color:var(--accent)}.message-markdown{color:#4d4941;font-size:13px;line-height:1.65;overflow-wrap:anywhere}.message-markdown :deep(p){margin:.4em 0}.message-markdown :deep(p:first-child){margin-top:0}.message-markdown :deep(p:last-child){margin-bottom:0}.message-markdown :deep(ul),.message-markdown :deep(ol){margin:.5em 0;padding-left:1.5em}.message-markdown :deep(code){padding:.1em .3em;border-radius:3px;background:#efebe4;font-family:ui-monospace,monospace;font-size:.9em}.message-actions{display:flex;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid #eeeae2}.message-actions button{padding:4px 7px;border:1px solid #dce3dc;border-radius:5px;color:#45624d;background:#f2f6f2;cursor:pointer;font-size:12px}.message-actions button:disabled{cursor:default;opacity:.55}.message-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.message-sources span{max-width:100%;overflow:hidden;padding:3px 6px;border-radius:4px;color:#66746a;background:#edf1ed;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.typing{display:flex;gap:3px;padding:5px 1px}.typing i{width:5px;height:5px;border-radius:50%;background:#7d8e81;animation:typing 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes typing{50%{opacity:.3;transform:translateY(-2px)}}.ai-composer{flex:0 0 auto;margin:0 10px 10px;padding:8px 9px;border:1px solid #dcd8cf;border-radius:10px;background:#fffefa;box-shadow:0 4px 16px rgb(50 45 36 / 6%)}.ai-composer textarea{width:100%;min-height:39px;resize:none;border:0;outline:0;color:#47433c;background:transparent;font-size:13px;line-height:1.5}.ai-composer>div{display:flex;align-items:center;justify-content:space-between}.ai-composer span{color:#aaa399;font-size:11px}.ai-composer button{display:grid;width:25px;height:25px;place-items:center;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:15px}.ai-composer button:disabled{background:#b9bcb6;cursor:default}.ai-disabled{display:grid;place-content:center;justify-items:center;height:100%;padding:30px;text-align:center}.ai-disabled>div{display:grid;width:55px;height:55px;place-items:center;border-radius:16px;color:#506d58;background:#e5ece6;font-size:23px}.ai-disabled h3{margin:15px 0 0;font-size:16px}.ai-disabled p{margin:8px 0 18px;color:#89837a;font-size:13px;line-height:1.65}.ai-disabled button{padding:8px 13px;border:0;border-radius:8px;color:white;background:#4d6654;cursor:pointer;font-size:13px}
 
 .ai-actions button.featured{grid-column:1/-1;color:#fff;border-color:#506c58;background:#506c58}
+.ai-composer button.stop-button{background:#a34f47;font-size:12px}
 .ai-actions button.featured:hover:not(:disabled){color:#fff;border-color:#3f5b48;background:#435f4c}
 .ai-actions button.featured span{color:#fff}
 .article-writer{display:grid;gap:8px;margin:10px 11px 0;padding:11px;border:1px solid #d9dfd9;border-radius:9px;background:#f0f5f0}

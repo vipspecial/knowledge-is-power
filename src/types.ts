@@ -119,4 +119,5 @@ export type AiStreamEvent =
   | { event: "started" }
   | { event: "delta"; content: string }
   | { event: "done" }
+  | { event: "aborted" }
   | { event: "error"; message: string };
