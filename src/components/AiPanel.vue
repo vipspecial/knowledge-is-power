@@ -301,15 +301,6 @@ onBeforeUnmount(() => {
       <section class="ai-context">
         <span></span>
         <p>{{ contextLabel }}</p>
-        <select
-          :value="currentModel"
-          :disabled="busy || !note"
-          aria-label="当前文档 AI 模型"
-          title="当前文档使用的 AI 模型"
-          @change="selectDocumentModel"
-        >
-          <option v-for="item in availableModels" :key="item" :value="item">{{ item }}</option>
-        </select>
       </section>
 
       <section class="ai-quick" aria-label="当前文档快捷提问">
@@ -365,8 +356,19 @@ onBeforeUnmount(() => {
           aria-label="询问当前文档"
           @keydown.enter.exact.prevent="sendChat"
         ></textarea>
-        <div>
-          <span>{{ busy ? '正在生成…' : 'Enter 发送 · Shift+Enter 换行' }}</span>
+        <div class="ai-composer-footer">
+          <label class="ai-model-select" title="当前文档使用的 AI 模型">
+            <span>模型</span>
+            <select
+              :value="currentModel"
+              :disabled="busy || !note"
+              aria-label="当前文档 AI 模型"
+              @change="selectDocumentModel"
+            >
+              <option v-for="item in availableModels" :key="item" :value="item">{{ item }}</option>
+            </select>
+          </label>
+          <span class="composer-hint">{{ busy ? '正在生成…' : 'Enter 发送' }}</span>
           <button type="button" :disabled="busy || !note || !chatInput.trim()" aria-label="发送" @click="sendChat">↑</button>
         </div>
       </footer>
@@ -397,6 +399,8 @@ onBeforeUnmount(() => {
 .ai-actions{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:8px 9px}.ai-actions button{height:30px;padding:0 3px;font-size:13px}.ai-actions button.featured{grid-column:span 2}
 .ai-messages{padding:12px 11px}.ai-welcome{padding:22px 10px}.ai-welcome>div{width:38px;height:38px;margin-bottom:9px}.ai-welcome h3{font-size:15px}.ai-welcome p{margin:7px 0 13px;font-size:13px}.ai-welcome button{padding:8px 9px;font-size:13px}
 .message-avatar{width:25px;height:25px}.message-content{max-width:calc(100% - 32px)}.user .message-content{font-size:13px}.message-markdown{font-size:14px;line-height:1.7}.message-actions button{font-size:13px}.ai-composer{margin:0 9px 9px;padding:8px 9px}.ai-composer textarea{min-height:42px;font-size:14px}.ai-composer span{font-size:12px}.ai-composer button{width:27px;height:27px}
+.ai-composer-footer{min-width:0;gap:7px}.ai-model-select{display:flex;min-width:0;max-width:52%;height:27px;align-items:center;gap:5px;padding:0 6px;border:1px solid var(--accent-border);border-radius:6px;color:var(--accent-strong);background:var(--accent-softest)}.ai-model-select>span{flex:0 0 auto;color:#9c6a47}.ai-model-select select{min-width:0;width:100%;border:0;outline:0;color:var(--accent-strong);background:transparent;font-size:12px;text-overflow:ellipsis}.ai-model-select select:disabled{opacity:.6}.composer-hint{min-width:0;flex:1;overflow:hidden;text-align:right;text-overflow:ellipsis;white-space:nowrap}.ai-composer-footer button{flex:0 0 auto}
+.ai-model-select:focus-within{outline:2px solid var(--accent);outline-offset:1px}
 .article-writer{gap:7px;margin:8px 9px 0;padding:10px}.article-writer strong{font-size:14px}.article-writer textarea{font-size:13px}.article-writer p{font-size:13px}.article-writer>button{font-size:13px}
 .ai-quick{display:flex;gap:5px;padding:8px 9px;border-bottom:1px solid #e6e2d9;overflow-x:auto}.ai-quick button{height:29px;flex:1;padding:0 8px;border:1px solid #dfe3de;border-radius:7px;color:#52665a;background:#fffefa;cursor:pointer;font-size:13px;white-space:nowrap}.ai-quick button:hover:not(:disabled){border-color:#aebcaf;background:#eef3ee}.ai-quick button:disabled{opacity:.45;cursor:default}
 .ai-mark{background:linear-gradient(145deg,#ff9a2e,var(--accent-strong))}

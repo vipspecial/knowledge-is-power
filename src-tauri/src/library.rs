@@ -193,6 +193,12 @@ fn read_manifest(root: &Path) -> Result<Option<LibraryManifest>, String> {
     if !path.exists() {
         return Ok(None);
     }
+    let file_size = fs::metadata(&path)
+        .map_err(|error| format!("无法读取知识库清单信息：{error}"))?
+        .len();
+    if file_size > MAX_STORE_BYTES as u64 {
+        return Err("知识库清单不能超过 20 MB".to_string());
+    }
     let data = fs::read(path).map_err(|error| format!("无法读取知识库清单：{error}"))?;
     serde_json::from_slice(&data)
         .map(Some)
@@ -275,20 +281,57 @@ pub(crate) fn write_store_to_directory(root: &Path, store: &NotesStore) -> Resul
 }
 
 fn read_store_from_directory(root: &Path, manifest: LibraryManifest) -> Result<NotesStore, String> {
+    if manifest.files.len() > MAX_NOTE_COUNT {
+        return Err(format!("笔记数量不能超过 {MAX_NOTE_COUNT} 篇"));
+    }
+    if manifest.knowledge_bases.len() > MAX_KNOWLEDGE_BASE_COUNT {
+        return Err(format!("知识库数量不能超过 {MAX_KNOWLEDGE_BASE_COUNT} 个"));
+    }
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|error| format!("无法确认文档目录：{error}"))?;
     let mut notes = Vec::with_capacity(manifest.files.len());
+    let mut note_ids = HashSet::with_capacity(manifest.files.len());
     for file in manifest.files {
         let path = safe_relative_path(root, &file.relative_path)?;
         if !path.exists() {
             continue;
         }
-        let data = fs::read_to_string(&path)
+        let canonical_path = fs::canonicalize(&path)
+            .map_err(|error| format!("无法确认文档路径“{}”：{error}", file.relative_path))?;
+        if !canonical_path.starts_with(&canonical_root) {
+            return Err(format!("文档路径越过知识库目录：{}", file.relative_path));
+        }
+        let file_size = fs::metadata(&canonical_path)
+            .map_err(|error| format!("无法读取文档信息“{}”：{error}", file.relative_path))?
+            .len();
+        if file_size > MAX_STORE_BYTES as u64 {
+            return Err(format!("文档“{}”不能超过 20 MB", file.relative_path));
+        }
+        let data = fs::read_to_string(&canonical_path)
             .map_err(|error| format!("无法读取文档“{}”：{error}", file.relative_path))?;
-        notes.push(parse_note(&data)?);
+        let note = parse_note(&data)?;
+        if note.id != file.note_id {
+            return Err(format!("文档“{}”的 ID 与清单不一致", file.relative_path));
+        }
+        if !note_ids.insert(note.id.clone()) {
+            return Err(format!("知识库清单包含重复文档 ID：{}", note.id));
+        }
+        notes.push(note);
     }
     Ok(NotesStore {
         knowledge_bases: manifest.knowledge_bases,
         notes,
     })
+}
+
+/// Load a library from an explicitly selected root without reading app settings.
+/// The MCP server uses this boundary so it cannot discover unrelated local data.
+pub(crate) fn load_store_from_directory(root: &Path) -> Result<NotesStore, String> {
+    if !root.is_dir() {
+        return Err("指定的知识库目录不存在或不是文件夹".to_string());
+    }
+    let manifest = read_manifest(root)?.ok_or("指定目录不是拿了桔子跑啊知识库")?;
+    read_store_from_directory(root, manifest)
 }
 
 #[tauri::command]

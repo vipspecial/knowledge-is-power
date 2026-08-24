@@ -1,5 +1,6 @@
 mod ai;
 mod library;
+mod mcp;
 mod models;
 mod settings;
 
@@ -15,6 +16,11 @@ use tauri::{
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Run the bundled executable as a read-only stdio MCP server.
+pub fn run_mcp(args: &[String]) -> Result<(), String> {
+    mcp::run(args)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

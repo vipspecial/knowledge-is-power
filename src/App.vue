@@ -5,6 +5,7 @@ import { createDocumentAiRequest, streamAi } from "./ai";
 import AiPanel from "./components/AiPanel.vue";
 import AiWritingDialog from "./components/AiWritingDialog.vue";
 import AppContextMenu from "./components/AppContextMenu.vue";
+import GlobalSearchDialog from "./components/GlobalSearchDialog.vue";
 import KnowledgeRail from "./components/KnowledgeRail.vue";
 import NoteListPane from "./components/NoteListPane.vue";
 import RichTextEditor from "./components/RichTextEditor.vue";
@@ -46,6 +47,7 @@ const toastMessage = ref("");
 const showDeleteDialog = ref(false);
 const trashDeleteTarget = ref<"all" | string | null>(null);
 const showSettingsDialog = ref(false);
+const showGlobalSearchDialog = ref(false);
 const settingsInitialTab = ref<"general" | "ai" | "storage" | "about">("general");
 const savingSettings = ref(false);
 const settings = ref<AppSettings>(cloneAppSettings(defaultSettings));
@@ -446,6 +448,37 @@ function selectNote(id: string): void {
   selectedText.value = "";
 }
 
+function openGlobalSearch(): void {
+  closeMenus();
+  showGlobalSearchDialog.value = true;
+}
+
+function revealGlobalSearchResult(knowledgeBaseId: string, noteId: string): void {
+  const note = notes.value.find((item) => item.id === noteId && !item.deletedAt);
+  if (!note || note.knowledgeBaseId !== knowledgeBaseId) return;
+
+  activeNavigation.value = "library";
+  selectedKnowledgeBaseId.value = knowledgeBaseId;
+  selectedId.value = noteId;
+  searchQuery.value = "";
+  selectedText.value = "";
+  showGlobalSearchDialog.value = false;
+  libraryRailCollapsed.value = false;
+  sidebarCollapsed.value = false;
+  localStorage.setItem("orange-run-library-collapsed", "false");
+  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+
+  const nextCollapsed = new Set(collapsedNoteIds.value);
+  let parentId = note.parentId;
+  const visited = new Set<string>();
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    nextCollapsed.delete(parentId);
+    parentId = notes.value.find((item) => item.id === parentId)?.parentId ?? null;
+  }
+  collapsedNoteIds.value = nextCollapsed;
+}
+
 function markEdited(): void {
   if (selectedNote.value) selectedNote.value.updatedAt = new Date().toISOString();
 }
@@ -831,6 +864,11 @@ async function persistNotes(): Promise<void> {
 
 function handleKeydown(event: KeyboardEvent): void {
   const modifier = event.metaKey || event.ctrlKey;
+  if (modifier && event.key.toLocaleLowerCase() === "k") {
+    event.preventDefault();
+    openGlobalSearch();
+    return;
+  }
   if (modifier && event.key.toLocaleLowerCase() === "n") {
     event.preventDefault();
     addNote();
@@ -853,6 +891,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (event.key === "Escape") {
     closeMenus();
+    showGlobalSearchDialog.value = false;
     showDeleteDialog.value = false;
     knowledgeBaseDialog.value = null;
     showSettingsDialog.value = false;
@@ -1031,6 +1070,7 @@ onBeforeUnmount(() => {
       @set-mode="setNoteListMode"
       @toggle-branch="toggleNoteBranch"
       @context="openNoteContextMenu"
+      @open-global-search="openGlobalSearch"
     />
 
     <TrashPane
@@ -1219,6 +1259,15 @@ onBeforeUnmount(() => {
       :y="contextMenu.y"
       :items="contextMenuItems"
       @select="handleContextMenuAction"
+    />
+
+    <GlobalSearchDialog
+      v-if="showGlobalSearchDialog"
+      :notes="notes"
+      :knowledge-bases="knowledgeBases"
+      :shortcut-prefix="shortcutPrefix"
+      @close="showGlobalSearchDialog = false"
+      @select="revealGlobalSearchResult"
     />
 
     <div v-if="showDeleteDialog" class="dialog-backdrop" @click.self="cancelDelete">
