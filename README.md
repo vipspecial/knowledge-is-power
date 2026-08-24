@@ -35,7 +35,7 @@
 | Windows | `.exe` | x64 |
 | Linux | `.deb` / `.AppImage` | x64 |
 
-当前版本通过 Releases 手动更新，暂未启用应用内自动更新。
+应用可在“设置 → 关于”中检查、下载并安装 GitHub Releases 的签名更新。
 
 ## 核心能力
 
@@ -123,7 +123,8 @@ npm run build:linux
 
 - 宣传页：修改 `website/` 并推送到 `main`，GitHub Actions 自动部署至 Pages。
 - 安装包：同步版本号与 `CHANGELOG.md`，推送 `vX.Y.Z` 标签后自动构建并发布至 Releases。
-- 普通安装包构建不需要自动更新签名密钥。
+- 本地普通安装包使用 `tauri.local.conf.json`，不需要自动更新签名密钥。
+- GitHub Release 需要配置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；私钥可填写 `tauri signer generate` 生成的 Base64、完整的 minisign 私钥文本，或带变量名的输出行，工作流会安全规范化格式且不会输出内容。
 
 ## Star 趋势
 

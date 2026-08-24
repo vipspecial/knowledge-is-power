@@ -84,4 +84,8 @@ function noteCount(id: string): number {
 .rail-library-row.active{box-shadow:inset 2px 0 var(--accent),0 2px 7px rgb(55 49 40 / 5%)}
 .rail-library-select svg,.rail-tools>button span{stroke:var(--accent);color:var(--accent)}
 .rail-library-actions button:hover,.trash-link:hover,.trash-link.active,.rail-tools>button:hover{color:var(--accent-strong);background:var(--accent-softest)}
+.rail-brand{height:68px}
+.rail-brand img{width:44px;height:44px;border-radius:13px;box-shadow:0 4px 12px rgb(43 58 47 / 15%)}
+.rail-brand strong{font-size:15px;font-weight:700;letter-spacing:.01em}
+@media(max-width:980px){.rail-brand{gap:8px;padding:0 8px}.rail-brand img{width:40px;height:40px;border-radius:12px}.rail-brand strong{font-size:14px}}
 </style>

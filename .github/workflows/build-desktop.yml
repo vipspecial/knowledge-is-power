@@ -114,10 +114,19 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Normalize updater signing key
+        run: node scripts/normalize-tauri-signing-key.mjs
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_INPUT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Verify updater signing credentials
+        run: npm run tauri -- signer sign package.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
       - name: Build installer
         run: npm run tauri build -- ${{ matrix.build_args }}
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload installer
