@@ -54,6 +54,12 @@ export interface SettingsView {
   hasApiKey: boolean;
 }
 
+export interface McpSetupInfo {
+  enabled: boolean;
+  executablePath: string;
+  accessFilePath: string;
+}
+
 export type AiOperation =
   | "chat"
   | "write"

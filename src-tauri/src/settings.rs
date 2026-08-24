@@ -215,7 +215,8 @@ pub(crate) fn save_app_settings(
     if path.exists() {
         fs::remove_file(&path).map_err(|error| format!("无法更新设置：{error}"))?;
     }
-    fs::rename(temporary, path).map_err(|error| format!("无法完成设置保存：{error}"))
+    fs::rename(temporary, path).map_err(|error| format!("无法完成设置保存：{error}"))?;
+    crate::mcp::update_access_directory(app, &settings.document_directory)
 }
 
 #[tauri::command]

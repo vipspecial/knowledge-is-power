@@ -48,7 +48,7 @@ const showDeleteDialog = ref(false);
 const trashDeleteTarget = ref<"all" | string | null>(null);
 const showSettingsDialog = ref(false);
 const showGlobalSearchDialog = ref(false);
-const settingsInitialTab = ref<"general" | "ai" | "storage" | "about">("general");
+const settingsInitialTab = ref<"general" | "ai" | "storage" | "mcp" | "about">("general");
 const savingSettings = ref(false);
 const settings = ref<AppSettings>(cloneAppSettings(defaultSettings));
 const hasApiKey = ref(false);
@@ -641,7 +641,7 @@ function showToast(message: string): void {
   toastTimer = window.setTimeout(() => (toastMessage.value = ""), 2400);
 }
 
-function openSettings(tab: "general" | "ai" | "storage" | "about" = "general"): void {
+function openSettings(tab: "general" | "ai" | "storage" | "mcp" | "about" = "general"): void {
   settingsInitialTab.value = tab;
   showSettingsDialog.value = true;
 }

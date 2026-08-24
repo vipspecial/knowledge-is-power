@@ -21,7 +21,7 @@ const emit = defineEmits<{
   openTrash: [];
   openGlobalSearch: [];
   context: [id: string, event: MouseEvent];
-  openSettings: [tab: "general" | "ai" | "storage" | "about"];
+  openSettings: [tab: "general" | "ai" | "storage" | "mcp" | "about"];
 }>();
 
 function noteCount(id: string): number {

@@ -8,6 +8,7 @@ use ai::{list_ai_models, stream_ai, test_ai_connection};
 use library::{
     choose_document_directory, export_markdown, import_markdown, load_store, save_store,
 };
+use mcp::{get_mcp_setup_info, set_mcp_enabled};
 use settings::{clear_ai_api_key, load_settings, save_settings};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -41,6 +42,8 @@ pub fn run() {
             load_settings,
             save_settings,
             clear_ai_api_key,
+            get_mcp_setup_info,
+            set_mcp_enabled,
             stream_ai,
             test_ai_connection,
             list_ai_models

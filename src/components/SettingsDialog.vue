@@ -11,7 +11,9 @@ import {
   chooseDocumentDirectory,
   cloneAppSettings,
   clearApiKey,
+  getMcpSetupInfo,
   listAiModels,
+  setMcpEnabled,
   testAiConnection,
 } from "../settings";
 import {
@@ -20,7 +22,7 @@ import {
   relaunchApp,
   type Update,
 } from "../updater";
-import type { AiProtocol, AppSettings, NotesStore } from "../types";
+import type { AiProtocol, AppSettings, McpSetupInfo, NotesStore } from "../types";
 
 const props = defineProps<{
   settings: AppSettings;
@@ -37,7 +39,7 @@ const emit = defineEmits<{
   keyCleared: [];
 }>();
 
-type SettingsTab = "general" | "ai" | "storage" | "about";
+type SettingsTab = "general" | "ai" | "storage" | "mcp" | "about";
 
 const activeTab = ref<SettingsTab>(props.initialTab ?? "general");
 const draft = ref<AppSettings>(cloneAppSettings(props.settings));
@@ -52,6 +54,11 @@ const modelCandidate = ref("");
 const discoveredModels = ref<string[]>([]);
 const modelsLoading = ref(false);
 const modelMessage = ref("");
+const mcpSetup = ref<McpSetupInfo | null>(null);
+const mcpLoading = ref(true);
+const mcpSaving = ref(false);
+const mcpMessage = ref("");
+const mcpCopied = ref(false);
 const updateState = ref<"idle" | "checking" | "available" | "downloading" | "restart" | "upToDate" | "error">("idle");
 const updateMessage = ref("");
 const updateVersion = ref("");
@@ -70,12 +77,38 @@ const originalCredentialScope = credentialScope(originalProvider, props.settings
 const credentialScopeChanged = computed(() =>
   credentialScope(draft.value.ai.provider, draft.value.ai.baseUrl) !== originalCredentialScope,
 );
+const mcpInstallInfo = computed(() => {
+  const setup = mcpSetup.value;
+  if (!setup?.executablePath || !setup.accessFilePath || !draft.value.documentDirectory) return "";
+  return [
+    "请在当前 AI 工具中安装并启用以下 stdio MCP 服务，同时保留已有 MCP 配置。",
+    "",
+    "服务名称：orange-run-knowledge",
+    `可执行文件：${setup.executablePath}`,
+    "启动参数：",
+    "--mcp",
+    "--directory",
+    draft.value.documentDirectory,
+    "--access-file",
+    setup.accessFilePath,
+    "",
+    "该服务仅用于列出知识库、搜索文档和读取指定文档。完成后请刷新 MCP 连接。",
+  ].join("\n");
+});
 
 const providerRegions: readonly { id: AiProviderRegion; label: string }[] = [
   { id: "china", label: "国内服务" },
   { id: "global", label: "国外服务" },
   { id: "custom", label: "自定义 API" },
 ];
+const settingsTabCopy: Record<SettingsTab, { title: string; description: string }> = {
+  general: { title: "通用设置", description: "调整文档保存行为。" },
+  ai: { title: "AI 助手", description: "选择国内外主流服务，或接入自定义 API。" },
+  storage: { title: "文档存储", description: "笔记会以开放文件保存在指定目录。" },
+  mcp: { title: "MCP", description: "通过标准 MCP 协议开放知识库的只读能力。" },
+  about: { title: "关于", description: "本地优先的 AI 知识库应用。" },
+};
+const activeTabCopy = computed(() => settingsTabCopy[activeTab.value]);
 
 function protocolLabel(protocol: AiProtocol): string {
   if (protocol === "responses") return "Responses API";
@@ -203,6 +236,7 @@ async function chooseDirectory(): Promise<void> {
     if (path) {
       draft.value.documentDirectory = path;
       emit("directoryChanged", path);
+      await refreshMcpSetup();
       directoryMessage.value = "文档已复制，新目录已启用。";
     }
   } catch (error) {
@@ -289,6 +323,63 @@ function selectTab(tab: SettingsTab): void {
   activeTab.value = tab;
 }
 
+async function refreshMcpSetup(): Promise<void> {
+  mcpLoading.value = true;
+  try {
+    mcpSetup.value = await getMcpSetupInfo();
+    mcpMessage.value = "";
+  } catch (error) {
+    mcpMessage.value = `无法读取 MCP 设置：${String(error)}`;
+  } finally {
+    mcpLoading.value = false;
+  }
+}
+
+async function toggleMcp(event: Event): Promise<void> {
+  const enabled = (event.target as HTMLInputElement).checked;
+  mcpSaving.value = true;
+  mcpCopied.value = false;
+  try {
+    mcpSetup.value = await setMcpEnabled(enabled);
+    mcpMessage.value = enabled
+      ? "MCP 已开启，可以复制安装信息。"
+      : "MCP 已关闭，已有连接将被拒绝。";
+  } catch (error) {
+    (event.target as HTMLInputElement).checked = mcpSetup.value?.enabled ?? false;
+    mcpMessage.value = `MCP 设置失败：${String(error)}`;
+  } finally {
+    mcpSaving.value = false;
+  }
+}
+
+async function copyMcpInstallInfo(): Promise<void> {
+  const content = mcpInstallInfo.value;
+  if (!content) {
+    mcpMessage.value = "请在桌面应用中开启 MCP 后再复制安装信息。";
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(content);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied) throw new Error("浏览器拒绝写入剪贴板");
+    }
+    mcpCopied.value = true;
+    mcpMessage.value = "安装信息已复制，粘贴给支持 MCP 的 AI 即可完成接入。";
+  } catch (error) {
+    mcpCopied.value = false;
+    mcpMessage.value = `复制失败：${String(error)}`;
+  }
+}
+
 watch(
   () => [draft.value.ai.baseUrl, draft.value.ai.model, draft.value.ai.protocol, apiKey.value],
   resetConnectionTest,
@@ -296,6 +387,7 @@ watch(
 
 onMounted(async () => {
   appVersion.value = "__TAURI_INTERNALS__" in window ? await getVersion() : packageInfo.version;
+  await refreshMcpSetup();
 });
 </script>
 
@@ -320,6 +412,9 @@ onMounted(async () => {
           <button :class="{ active: activeTab === 'storage' }" type="button" @click="selectTab('storage')">
             <span>▱</span>文档存储
           </button>
+          <button :class="{ active: activeTab === 'mcp' }" type="button" @click="selectTab('mcp')">
+            <span>⌁</span>MCP
+          </button>
           <button :class="{ active: activeTab === 'about' }" type="button" @click="selectTab('about')">
             <span>i</span>关于
           </button>
@@ -329,13 +424,8 @@ onMounted(async () => {
       <form class="settings-content" @submit.prevent="submit">
         <header>
           <div>
-            <h2>
-              {{ activeTab === 'general' ? '通用设置' : activeTab === 'ai' ? 'AI 助手' : activeTab === 'storage' ? '文档存储' : '关于' }}
-            </h2>
-            <p v-if="activeTab === 'general'">调整文档保存行为。</p>
-            <p v-else-if="activeTab === 'ai'">选择国内外主流服务，或接入自定义 API。</p>
-            <p v-else-if="activeTab === 'storage'">笔记会以开放文件保存在指定目录。</p>
-            <p v-else>本地优先的 AI 知识库应用。</p>
+            <h2>{{ activeTabCopy.title }}</h2>
+            <p>{{ activeTabCopy.description }}</p>
           </div>
           <button class="settings-close" type="button" aria-label="关闭设置" @click="emit('close')">×</button>
         </header>
@@ -500,6 +590,63 @@ onMounted(async () => {
             </div>
           </section>
 
+          <section v-else-if="activeTab === 'mcp'" class="settings-section mcp-settings">
+            <label class="switch-row" :class="{ disabled: mcpLoading || mcpSaving }">
+              <span>
+                <strong>启用 MCP</strong>
+                <small>默认关闭。开启后提供只读检索，不允许创建、修改或删除文档。</small>
+              </span>
+              <input
+                :checked="mcpSetup?.enabled ?? false"
+                :disabled="mcpLoading || mcpSaving"
+                type="checkbox"
+                @change="toggleMcp"
+              />
+              <i></i>
+            </label>
+
+            <div class="mcp-scope-card" :class="{ disabled: !mcpSetup?.enabled }">
+              <div class="mcp-scope-icon" aria-hidden="true">⌁</div>
+              <div>
+                <strong>开放范围</strong>
+                <p>当前文档目录中的全部知识库，不包含回收站。</p>
+                <code>{{ draft.documentDirectory || '尚未设置文档目录' }}</code>
+              </div>
+            </div>
+
+            <div class="mcp-install-card" :class="{ disabled: !mcpSetup?.enabled }">
+              <div class="mcp-install-heading">
+                <div>
+                  <strong>安装</strong>
+                  <p>复制一次安装信息，即可接入任何支持 MCP 的工具。</p>
+                </div>
+              </div>
+
+              <div class="mcp-copy-row">
+                <span class="mcp-install-mark" aria-hidden="true">MCP</span>
+                <div>
+                  <strong>通用安装信息</strong>
+                  <p>复制后粘贴给目标 AI，或导入其 MCP 设置。</p>
+                </div>
+                <button
+                  class="mcp-copy-button"
+                  type="button"
+                  :disabled="!mcpSetup?.enabled || !mcpInstallInfo"
+                  @click="copyMcpInstallInfo"
+                >{{ mcpCopied ? '已复制' : '复制安装信息' }}</button>
+              </div>
+
+              <ol class="mcp-steps">
+                <li><span aria-hidden="true">①</span><p><strong>开启 MCP</strong>授权当前文档目录的只读访问。</p></li>
+                <li><span aria-hidden="true">②</span><p><strong>复制信息</strong>应用自动带上路径与连接参数。</p></li>
+                <li><span aria-hidden="true">③</span><p><strong>粘贴安装</strong>交给支持 MCP 的 AI 完成接入。</p></li>
+              </ol>
+            </div>
+
+            <p v-if="mcpMessage" class="mcp-message" role="status">{{ mcpMessage }}</p>
+            <p class="mcp-security-note">关闭 MCP 后，已经安装的连接也会立即失效。MCP 不会读取 AI 密钥。</p>
+          </section>
+
           <section v-else class="settings-section about-settings">
             <div class="about-product">
               <img src="/logo.svg" alt="应用 Logo" />
@@ -564,10 +711,13 @@ onMounted(async () => {
 .model-config{padding:11px;border:1px solid #e5e0d7;border-radius:10px;background:#fff}.model-active-row,.model-add-row{display:flex;gap:7px}.model-active-row select,.model-add-row input{min-width:0;flex:1}.model-active-row button,.model-add-row button{height:37px;flex:0 0 auto;padding:0 11px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:650}.model-active-row button:disabled,.model-add-row button:disabled{opacity:.55;cursor:default}.configured-models{display:flex;flex-wrap:wrap;gap:5px}.model-chip{display:flex;min-width:0;max-width:100%;overflow:hidden;border:1px solid #ded9d0;border-radius:7px;background:#f7f4ee}.model-chip.active{border-color:var(--accent-border);background:var(--accent-softest)}.model-chip button{height:27px;border:0;color:#6f685f;background:transparent;cursor:pointer;font-size:12px}.model-chip button:first-child{min-width:0;overflow:hidden;padding:0 8px;text-overflow:ellipsis;white-space:nowrap}.model-chip button:last-child{width:24px;flex:0 0 auto;border-left:1px solid rgb(0 0 0 / 6%);color:#9a7567}.model-chip.active button:first-child{color:var(--accent-strong);font-weight:700}.model-config code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.model-message{color:var(--accent-strong)!important}
 .model-chip button:disabled{cursor:default;opacity:.55}
 .storage-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid #e2ded5;border-radius:11px;background:#fff}.folder-icon{display:grid;width:40px;height:40px;place-items:center;border-radius:10px;color:#5c735f;background:#e9efe9}.storage-card>div:last-child{display:grid;min-width:0;gap:5px}.storage-card strong,.storage-info strong{font-size:14px}.storage-card code{overflow:hidden;color:#777168;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.choose-directory{justify-self:start}.storage-info{margin-top:10px;padding:16px;border-radius:10px;color:#767067;background:#f2efe8}.storage-info p{margin-top:7px;font-size:13px;line-height:1.55}.about-settings{padding:14px 4px}.about-product{display:flex;align-items:center;gap:14px;text-align:left}.about-product img{width:58px;height:58px;border-radius:16px;box-shadow:0 10px 30px rgb(50 66 54 / 16%)}.about-product h3{margin:0;font-size:17px}.about-product p,.privacy-note{margin-top:5px;color:#7f796f;font-size:13px;line-height:1.65}.update-card{position:relative;display:grid;grid-template-columns:1fr auto;gap:5px 16px;margin-top:7px;padding:16px;border:1px solid #e3ded4;border-radius:12px;background:#fff;text-align:left}.update-card>div:first-child{min-width:0}.update-card strong{font-size:14px}.update-card p{margin:5px 0 0;color:#878076;font-size:13px;line-height:1.55}.update-card>button{height:33px;align-self:center;padding:0 12px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:700}.update-card>button:disabled{opacity:.58;cursor:default}.update-card.available{border-color:var(--accent-border);background:#fffaf5}
+.switch-row.disabled{cursor:default;opacity:.6}
+.mcp-scope-card{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-scope-card.disabled,.mcp-install-card.disabled{opacity:.55}.mcp-scope-icon{display:grid;width:36px;height:36px;flex:0 0 auto;place-items:center;border-radius:10px;color:var(--accent-strong);background:var(--accent-soft);font-size:20px}.mcp-scope-card>div:last-child{display:grid;min-width:0;gap:4px}.mcp-scope-card strong,.mcp-install-heading strong,.mcp-copy-row strong{font-size:14px}.mcp-scope-card p,.mcp-install-heading p,.mcp-copy-row p{margin:0;color:#827b72;font-size:13px;line-height:1.5}.mcp-scope-card code{overflow:hidden;color:#6f6960;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.mcp-install-card{display:grid;gap:12px;padding:15px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-install-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.mcp-install-heading>div{display:grid;gap:4px}.mcp-copy-row{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px;border:1px solid #e7e1d8;border-radius:10px;background:#faf8f4}.mcp-copy-row>div{display:grid;min-width:0;gap:3px}.mcp-install-mark{display:grid;width:42px;height:42px;place-items:center;border-radius:11px;color:var(--accent-strong);background:var(--accent-soft);font-size:11px;font-weight:800;letter-spacing:.04em}.mcp-copy-button{height:34px;flex:0 0 auto;padding:0 13px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:700}.mcp-copy-button:disabled{cursor:default;opacity:.55}.mcp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0;padding:0;list-style:none}.mcp-steps li{display:flex;gap:7px;align-items:flex-start}.mcp-steps li>span{flex:0 0 auto;color:var(--accent-strong);font-size:16px;line-height:1.2}.mcp-steps p{margin:0;color:#858077;font-size:12px;line-height:1.45}.mcp-steps strong{display:block;color:#5c564e;font-size:12px}.mcp-message{color:var(--accent-strong)!important;font-size:13px!important}.mcp-security-note{padding:11px 13px;border-radius:9px;color:#7c756c;background:#f3efe8;font-size:12px!important;line-height:1.55}
 .update-busy{align-self:center;color:var(--accent-strong);font-size:13px;font-weight:700}.update-progress{grid-column:1/-1;height:4px!important;margin-top:7px;overflow:hidden;border-radius:99px;background:#eee8df}.update-progress i{display:block;height:100%;border-radius:inherit;background:var(--accent-solid);transition:width .18s}.update-notes{grid-column:1/-1;max-height:64px;overflow:auto;white-space:pre-line}.privacy-note{max-width:500px;margin:3px 0 0!important}
 .directory-message{margin:0;color:#54715c!important;font-size:13px!important}
 .settings-content>footer{display:flex;min-height:63px;align-items:center;justify-content:space-between;padding:12px 25px;border-top:1px solid #e8e4db}.settings-content footer>span{color:#aaa399;font-size:13px}.settings-content footer div{display:flex;gap:8px}.settings-content footer button{height:34px;padding:0 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:650}.settings-content footer .cancel{border:1px solid #ddd8cf;background:#fffefa}.settings-content footer .save{border:1px solid #4d6654;color:#fff;background:#4d6654}.settings-content footer .save:disabled{opacity:.55}
 @media(max-width:760px){.settings-dialog{grid-template-columns:145px minmax(0,1fr)}.settings-nav{padding:18px 8px}.settings-brand{padding-left:5px}.settings-scroll{padding:20px}.field-grid,.provider-picker{grid-template-columns:1fr}.field,.provider-select,.provider-summary{grid-column:1/-1}}
+@media(max-width:760px){.mcp-steps{grid-template-columns:1fr}.mcp-copy-row{grid-template-columns:42px minmax(0,1fr)}.mcp-copy-button{grid-column:1/-1}}
 .settings-nav nav button.active{color:var(--accent-strong);background:var(--accent-softest)}
 .setting-row input[type=range],.field input[type=range]{accent-color:var(--accent)}
 .switch-row{border-color:#ead8c8;background:#fffaf4}

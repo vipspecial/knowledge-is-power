@@ -105,6 +105,14 @@ pub(crate) struct SettingsView {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct McpSetupInfo {
+    pub(crate) enabled: bool,
+    pub(crate) executable_path: String,
+    pub(crate) access_file_path: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ImportedMarkdown {
     pub(crate) title: String,
     pub(crate) content: String,

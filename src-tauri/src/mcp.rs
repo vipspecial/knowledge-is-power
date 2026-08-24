@@ -1,22 +1,43 @@
 use crate::{
     library::load_store_from_directory,
-    models::{Note, NotesStore},
+    models::{McpSetupInfo, Note, NotesStore},
+    settings::load_app_settings,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    fs,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
+use tauri::Manager;
 
 const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 200;
 const MAX_SEARCH_RESULTS: usize = 50;
 const MAX_DOCUMENT_CHARS: usize = 100_000;
+const MAX_ACCESS_FILE_BYTES: u64 = 16 * 1024;
+const ACCESS_POLICY_VERSION: u8 = 1;
+
+#[derive(Debug)]
+struct McpLaunchOptions {
+    directory: PathBuf,
+    access_file: PathBuf,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct McpAccessPolicy {
+    version: u8,
+    enabled: bool,
+    document_directory: String,
+}
 
 pub(crate) struct McpServer {
     root: PathBuf,
+    access_file: Option<PathBuf>,
 }
 
 impl McpServer {
@@ -26,7 +47,28 @@ impl McpServer {
         let root = root
             .canonicalize()
             .map_err(|error| format!("无法确认知识库目录：{error}"))?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            access_file: None,
+        })
+    }
+
+    fn new_authorized(options: &McpLaunchOptions) -> Result<Self, String> {
+        let root = authorize_directory(options)?;
+        let mut server = Self::new(root)?;
+        server.access_file = Some(options.access_file.clone());
+        Ok(server)
+    }
+
+    fn ensure_authorized(&self) -> Result<(), String> {
+        let Some(access_file) = &self.access_file else {
+            return Ok(());
+        };
+        authorize_directory(&McpLaunchOptions {
+            directory: self.root.clone(),
+            access_file: access_file.clone(),
+        })?;
+        Ok(())
     }
 
     fn handle_line(&self, line: &str) -> Option<String> {
@@ -60,6 +102,9 @@ impl McpServer {
     }
 
     fn call_tool(&self, params: &Value) -> Value {
+        if let Err(error) = self.ensure_authorized() {
+            return tool_error(&error);
+        }
         let Some(name) = params.get("name").and_then(Value::as_str) else {
             return tool_error("缺少工具名称");
         };
@@ -79,8 +124,8 @@ impl McpServer {
 }
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
-    let root = parse_directory_argument(args)?;
-    let server = McpServer::new(root)?;
+    let options = parse_launch_arguments(args)?;
+    let server = McpServer::new_authorized(&options)?;
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
 
@@ -104,8 +149,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_directory_argument(args: &[String]) -> Result<PathBuf, String> {
+fn parse_launch_arguments(args: &[String]) -> Result<McpLaunchOptions, String> {
     let mut directory: Option<PathBuf> = None;
+    let mut access_file: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -117,10 +163,158 @@ fn parse_directory_argument(args: &[String]) -> Result<PathBuf, String> {
                 directory = Some(PathBuf::from(value));
                 index += 2;
             }
+            "--access-file" => {
+                let value = args.get(index + 1).ok_or("--access-file 缺少授权文件路径")?;
+                if access_file.is_some() {
+                    return Err("--access-file 只能指定一次".to_string());
+                }
+                access_file = Some(PathBuf::from(value));
+                index += 2;
+            }
             argument => return Err(format!("不支持的 MCP 参数：{argument}")),
         }
     }
-    directory.ok_or_else(|| "MCP 需要通过 --directory 指定知识库目录".to_string())
+    Ok(McpLaunchOptions {
+        directory: directory.ok_or("MCP 需要通过 --directory 指定知识库目录")?,
+        access_file: access_file.ok_or("MCP 需要通过 --access-file 指定授权文件")?,
+    })
+}
+
+fn access_file_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
+    Ok(data_dir.join("mcp-access.json"))
+}
+
+fn read_access_policy(path: &Path) -> Result<McpAccessPolicy, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| "MCP 尚未启用，请先在应用设置中开启".to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("MCP 授权文件无效".to_string());
+    }
+    if metadata.len() > MAX_ACCESS_FILE_BYTES {
+        return Err("MCP 授权文件过大".to_string());
+    }
+    let data = fs::read(path).map_err(|error| format!("无法读取 MCP 授权：{error}"))?;
+    let policy = serde_json::from_slice::<McpAccessPolicy>(&data)
+        .map_err(|_| "MCP 授权文件格式无效，请在应用设置中重新开启".to_string())?;
+    if policy.version != ACCESS_POLICY_VERSION || policy.document_directory.trim().is_empty() {
+        return Err("MCP 授权版本或目录无效，请在应用设置中重新开启".to_string());
+    }
+    Ok(policy)
+}
+
+fn write_access_policy(path: &Path, policy: &McpAccessPolicy) -> Result<(), String> {
+    let parent = path.parent().ok_or("MCP 授权文件路径无效")?;
+    fs::create_dir_all(parent).map_err(|error| format!("无法创建 MCP 配置目录：{error}"))?;
+    let data = serde_json::to_vec_pretty(policy)
+        .map_err(|error| format!("无法整理 MCP 授权：{error}"))?;
+    let temporary = parent.join("mcp-access.json.tmp");
+    let mut options = fs::OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temporary)
+        .map_err(|error| format!("无法创建 MCP 授权：{error}"))?;
+    file.write_all(&data)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("无法保存 MCP 授权：{error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+            .map_err(|error| format!("无法限制 MCP 授权文件权限：{error}"))?;
+    }
+    if path.exists() {
+        fs::remove_file(path).map_err(|error| format!("无法更新 MCP 授权：{error}"))?;
+    }
+    fs::rename(&temporary, path).map_err(|error| format!("无法完成 MCP 授权保存：{error}"))
+}
+
+fn authorize_directory(options: &McpLaunchOptions) -> Result<PathBuf, String> {
+    let policy = read_access_policy(&options.access_file)?;
+    if !policy.enabled {
+        return Err("MCP 已在应用设置中关闭".to_string());
+    }
+    let requested = options
+        .directory
+        .canonicalize()
+        .map_err(|error| format!("无法确认知识库目录：{error}"))?;
+    let allowed = PathBuf::from(policy.document_directory)
+        .canonicalize()
+        .map_err(|error| format!("无法确认已授权知识库目录：{error}"))?;
+    if requested != allowed {
+        return Err("请求目录与应用中授权的知识库目录不一致".to_string());
+    }
+    Ok(requested)
+}
+
+pub(crate) fn update_access_directory(
+    app: &tauri::AppHandle,
+    document_directory: &str,
+) -> Result<(), String> {
+    let path = access_file_path(app)?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let policy = McpAccessPolicy {
+        version: ACCESS_POLICY_VERSION,
+        enabled: read_access_policy(&path)
+            .map(|policy| policy.enabled)
+            .unwrap_or(false),
+        document_directory: document_directory.to_string(),
+    };
+    write_access_policy(&path, &policy)
+}
+
+fn executable_path() -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(path);
+    }
+    std::env::current_exe().map_err(|error| format!("无法获取应用程序路径：{error}"))
+}
+
+fn setup_info(app: &tauri::AppHandle) -> Result<McpSetupInfo, String> {
+    let access_file = access_file_path(app)?;
+    let enabled = if access_file.exists() {
+        read_access_policy(&access_file)?.enabled
+    } else {
+        false
+    };
+    Ok(McpSetupInfo {
+        enabled,
+        executable_path: executable_path()?.to_string_lossy().into_owned(),
+        access_file_path: access_file.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+pub(crate) fn get_mcp_setup_info(app: tauri::AppHandle) -> Result<McpSetupInfo, String> {
+    setup_info(&app)
+}
+
+#[tauri::command]
+pub(crate) fn set_mcp_enabled(
+    app: tauri::AppHandle,
+    enabled: bool,
+) -> Result<McpSetupInfo, String> {
+    let settings = load_app_settings(&app)?;
+    let policy = McpAccessPolicy {
+        version: ACCESS_POLICY_VERSION,
+        enabled,
+        document_directory: settings.document_directory,
+    };
+    write_access_policy(&access_file_path(&app)?, &policy)?;
+    setup_info(&app)
 }
 
 fn initialize_result(params: &Value) -> Value {
@@ -515,5 +709,99 @@ mod tests {
         assert!(server
             .handle_request(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
             .is_none());
+    }
+
+    #[test]
+    fn launch_arguments_require_directory_and_access_file() {
+        let options = parse_launch_arguments(&[
+            "--directory".to_string(),
+            "/tmp/library".to_string(),
+            "--access-file".to_string(),
+            "/tmp/mcp-access.json".to_string(),
+        ])
+        .expect("complete MCP arguments should be accepted");
+        assert_eq!(options.directory, PathBuf::from("/tmp/library"));
+        assert_eq!(options.access_file, PathBuf::from("/tmp/mcp-access.json"));
+
+        let error = parse_launch_arguments(&[
+            "--directory".to_string(),
+            "/tmp/library".to_string(),
+        ])
+        .expect_err("missing access file should be rejected");
+        assert!(error.contains("--access-file"));
+    }
+
+    #[test]
+    fn access_policy_must_be_enabled_and_match_the_requested_directory() {
+        let directory = tempfile::tempdir().expect("temporary directory should exist");
+        let allowed = directory.path().join("allowed");
+        let other = directory.path().join("other");
+        fs::create_dir(&allowed).expect("allowed directory should exist");
+        fs::create_dir(&other).expect("other directory should exist");
+        let access_file = directory.path().join("mcp-access.json");
+        let options = McpLaunchOptions {
+            directory: allowed.clone(),
+            access_file: access_file.clone(),
+        };
+
+        write_access_policy(
+            &access_file,
+            &McpAccessPolicy {
+                version: ACCESS_POLICY_VERSION,
+                enabled: false,
+                document_directory: allowed.to_string_lossy().into_owned(),
+            },
+        )
+        .expect("disabled policy should be written");
+        assert!(authorize_directory(&options)
+            .expect_err("disabled access should fail")
+            .contains("已在应用设置中关闭"));
+
+        write_access_policy(
+            &access_file,
+            &McpAccessPolicy {
+                version: ACCESS_POLICY_VERSION,
+                enabled: true,
+                document_directory: allowed.to_string_lossy().into_owned(),
+            },
+        )
+        .expect("enabled policy should be written");
+        assert_eq!(
+            authorize_directory(&options).expect("matching directory should be authorized"),
+            allowed.canonicalize().expect("allowed directory should resolve")
+        );
+
+        write_store_to_directory(&allowed, &sample_store()).expect("store should be written");
+        let server = McpServer::new_authorized(&options).expect("enabled MCP should start");
+        write_access_policy(
+            &options.access_file,
+            &McpAccessPolicy {
+                version: ACCESS_POLICY_VERSION,
+                enabled: false,
+                document_directory: allowed.to_string_lossy().into_owned(),
+            },
+        )
+        .expect("disabled policy should replace the active one");
+        let denied = call_tool(&server, "list_knowledge_bases", json!({}));
+        assert_eq!(denied["isError"], true);
+        assert!(denied.to_string().contains("已在应用设置中关闭"));
+
+        write_access_policy(
+            &options.access_file,
+            &McpAccessPolicy {
+                version: ACCESS_POLICY_VERSION,
+                enabled: true,
+                document_directory: allowed.to_string_lossy().into_owned(),
+            },
+        )
+        .expect("enabled policy should be restored");
+
+        let mismatched = McpLaunchOptions {
+            directory: other,
+            access_file,
+        };
+        assert!(authorize_directory(&mismatched)
+            .expect_err("different directory should fail")
+            .contains("不一致"));
     }
 }

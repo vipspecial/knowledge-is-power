@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "拿了桔子跑啊",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "identifier": "com.peter.mojian",
   "build": {
     "beforeDevCommand": "npm run dev",

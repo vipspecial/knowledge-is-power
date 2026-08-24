@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inferAiProvider } from "./aiProviders";
-import type { AiProtocol, AiSettings, AppSettings, NotesStore, SettingsView } from "./types";
+import type { AiProtocol, AiSettings, AppSettings, McpSetupInfo, NotesStore, SettingsView } from "./types";
 
 const settingsStorageKey = "mojian-settings";
+const mcpEnabledStorageKey = "mojian-mcp-enabled";
 
 export const defaultSettings: AppSettings = {
   general: {
@@ -75,6 +76,21 @@ export async function saveAppSettings(
 
 export async function clearApiKey(): Promise<void> {
   if (isRunningInTauri()) await invoke("clear_ai_api_key");
+}
+
+export async function getMcpSetupInfo(): Promise<McpSetupInfo> {
+  if (isRunningInTauri()) return invoke<McpSetupInfo>("get_mcp_setup_info");
+  return {
+    enabled: localStorage.getItem(mcpEnabledStorageKey) === "true",
+    executablePath: "",
+    accessFilePath: "",
+  };
+}
+
+export async function setMcpEnabled(enabled: boolean): Promise<McpSetupInfo> {
+  if (isRunningInTauri()) return invoke<McpSetupInfo>("set_mcp_enabled", { enabled });
+  localStorage.setItem(mcpEnabledStorageKey, String(enabled));
+  return { enabled, executablePath: "", accessFilePath: "" };
 }
 
 export async function chooseDocumentDirectory(store: NotesStore): Promise<string | null> {

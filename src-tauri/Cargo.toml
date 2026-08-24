@@ -1,6 +1,6 @@
 [package]
 name = "orange-run-notes"
-version = "0.9.3"
+version = "0.10.0"
 description = "A quiet local-first notes app"
 authors = ["Peter"]
 edition = "2021"
