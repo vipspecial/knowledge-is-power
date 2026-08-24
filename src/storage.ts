@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "./browserStorage";
 import type { Note, NotesStore } from "./types";
-
-const browserStorageKey = "mojian-notes";
 
 function isRunningInTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -12,7 +11,7 @@ export async function loadStore(): Promise<NotesStore> {
   if (isRunningInTauri()) {
     store = await invoke<NotesStore>("load_store");
   } else {
-    const stored = localStorage.getItem(browserStorageKey);
+    const stored = readBrowserStorage(browserStorageKeys.notes);
     const parsed = stored ? (JSON.parse(stored) as NotesStore | Note[]) : [];
     store = Array.isArray(parsed)
       ? { knowledgeBases: [], notes: parsed }
@@ -41,5 +40,5 @@ export async function saveStore(store: NotesStore): Promise<void> {
     return;
   }
 
-  localStorage.setItem(browserStorageKey, JSON.stringify(store));
+  writeBrowserStorage(browserStorageKeys.notes, JSON.stringify(store));
 }

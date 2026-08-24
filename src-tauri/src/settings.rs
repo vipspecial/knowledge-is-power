@@ -1,25 +1,69 @@
 use crate::models::{AiSettings, AppSettings, SettingsView};
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
 };
 use tauri::Manager;
 
-fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
-    Ok(data_dir.join("settings.json"))
+const APP_IDENTIFIER: &str = "com.peter.orange-run-notes";
+const LEGACY_APP_IDENTIFIER: &str = "com.peter.mojian";
+const CREDENTIAL_ACCOUNT: &str = "ai-api-key";
+const LEGACY_API_KEY_FILE: &str = "ai-api-key";
+const LEGACY_API_KEY_TEMP_FILE: &str = "ai-api-key.tmp";
+const LEGACY_MCP_ACCESS_FILE: &str = "mcp-access.json";
+
+trait CredentialStore {
+    fn get(&self) -> Result<Option<String>, String>;
+    fn set(&self, value: &str) -> Result<(), String>;
+    fn delete(&self) -> Result<(), String>;
 }
 
-fn api_key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
+struct SystemCredentialStore;
+
+impl SystemCredentialStore {
+    fn entry(&self) -> Result<keyring::Entry, String> {
+        keyring::Entry::new(APP_IDENTIFIER, CREDENTIAL_ACCOUNT)
+            .map_err(|error| format!("无法连接系统安全凭据存储：{error}"))
+    }
+}
+
+impl CredentialStore for SystemCredentialStore {
+    fn get(&self) -> Result<Option<String>, String> {
+        match self.entry()?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!("无法读取系统安全凭据：{error}")),
+        }
+    }
+
+    fn set(&self, value: &str) -> Result<(), String> {
+        self.entry()?
+            .set_password(value)
+            .map_err(|error| format!("无法保存到系统安全凭据：{error}"))
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        match self.entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("无法从系统安全凭据中移除密钥：{error}")),
+        }
+    }
+}
+
+fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
         .app_data_dir()
-        .map_err(|error| format!("无法获取应用数据目录：{error}"))?;
-    Ok(data_dir.join("ai-api-key"))
+        .map_err(|error| format!("无法获取应用数据目录：{error}"))
+}
+
+fn legacy_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let current = app_data_dir(app)?;
+    let parent = current.parent().ok_or("应用数据目录无效")?;
+    Ok(parent.join(LEGACY_APP_IDENTIFIER))
+}
+
+fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("settings.json"))
 }
 
 fn default_document_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -74,54 +118,121 @@ fn normalize_ai_models(settings: &mut AiSettings) {
     settings.models = models;
 }
 
-fn read_api_key_file(path: &Path) -> Option<String> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|key| key.trim().to_string())
-        .filter(|key| !key.is_empty())
+fn legacy_api_key_paths(app: &tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
+    let current = app_data_dir(app)?;
+    let legacy = legacy_app_data_dir(app)?;
+    Ok(vec![
+        current.join(LEGACY_API_KEY_FILE),
+        current.join(LEGACY_API_KEY_TEMP_FILE),
+        legacy.join(LEGACY_API_KEY_FILE),
+        legacy.join(LEGACY_API_KEY_TEMP_FILE),
+    ])
 }
 
-fn write_api_key_file(path: &Path, api_key: &str) -> Result<(), String> {
-    let parent = path.parent().ok_or("API Key 保存路径无效")?;
-    fs::create_dir_all(parent).map_err(|error| format!("无法创建应用配置目录：{error}"))?;
-    let temporary = parent.join("ai-api-key.tmp");
-    let mut options = fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&temporary)
-        .map_err(|error| format!("无法创建 API Key 配置：{error}"))?;
-    file.write_all(api_key.trim().as_bytes())
-        .map_err(|error| format!("无法保存 API Key：{error}"))?;
-    file.sync_all()
-        .map_err(|error| format!("无法完成 API Key 保存：{error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
-            .map_err(|error| format!("无法限制 API Key 文件权限：{error}"))?;
-    }
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| format!("无法更新 API Key：{error}"))?;
-    }
-    fs::rename(&temporary, path).map_err(|error| format!("无法完成 API Key 保存：{error}"))
-}
-
-fn delete_api_key_file(path: &Path) -> Result<(), String> {
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| format!("无法移除 API Key：{error}"))?;
+fn remove_plaintext_api_keys(paths: &[PathBuf]) -> Result<(), String> {
+    for path in paths {
+        if path.exists() {
+            fs::remove_file(path)
+                .map_err(|error| format!("安全存储已启用，但无法移除旧明文密钥：{error}"))?;
+        }
     }
     Ok(())
 }
 
-pub(crate) fn get_api_key(app: &tauri::AppHandle) -> Option<String> {
-    api_key_path(app)
-        .ok()
-        .and_then(|path| read_api_key_file(&path))
+fn remove_legacy_app_dir_if_empty(app: &tauri::AppHandle) -> Result<(), String> {
+    let path = legacy_app_data_dir(app)?;
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(format!("无法清理旧应用数据目录：{error}")),
+    }
+}
+
+fn save_secure_api_key(store: &impl CredentialStore, value: &str) -> Result<(), String> {
+    store.set(value)?;
+    if store.get()?.as_deref() != Some(value) {
+        return Err("系统安全凭据校验失败，API Key 未保存".to_string());
+    }
+    Ok(())
+}
+
+fn copy_known_file(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.exists() {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(source)
+        .map_err(|error| format!("无法读取旧应用数据：{error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("旧应用数据路径不是普通文件，已停止自动迁移".to_string());
+    }
+    if destination.exists() {
+        let destination_metadata = fs::symlink_metadata(destination)
+            .map_err(|error| format!("无法读取新应用数据：{error}"))?;
+        if destination_metadata.file_type().is_symlink() || !destination_metadata.is_file() {
+            return Err("新应用数据路径不是普通文件，已停止自动迁移".to_string());
+        }
+        let source_data = fs::read(source)
+            .map_err(|error| format!("无法校验旧应用数据：{error}"))?;
+        let destination_data = fs::read(destination)
+            .map_err(|error| format!("无法校验新应用数据：{error}"))?;
+        if source_data == destination_data {
+            fs::remove_file(source)
+                .map_err(|error| format!("无法清理已迁移的旧应用数据：{error}"))?;
+        }
+        return Ok(());
+    }
+
+    let parent = destination.parent().ok_or("新应用数据路径无效")?;
+    fs::create_dir_all(parent).map_err(|error| format!("无法创建新应用数据目录：{error}"))?;
+    let temporary = parent.join(format!(
+        "{}.migration.tmp",
+        destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("data")
+    ));
+    fs::copy(source, &temporary).map_err(|error| format!("无法复制旧应用数据：{error}"))?;
+    let source_data = fs::read(source).map_err(|error| format!("无法校验旧应用数据：{error}"))?;
+    let temporary_data = fs::read(&temporary)
+        .map_err(|error| format!("无法校验迁移后的应用数据：{error}"))?;
+    if source_data != temporary_data {
+        let _ = fs::remove_file(&temporary);
+        return Err("旧应用数据迁移校验失败，原文件已保留".to_string());
+    }
+    fs::rename(&temporary, destination)
+        .map_err(|error| format!("无法启用迁移后的应用数据：{error}"))?;
+    fs::remove_file(source).map_err(|error| format!("无法清理已迁移的旧应用数据：{error}"))
+}
+
+pub(crate) fn migrate_legacy_app_data(app: &tauri::AppHandle) -> Result<(), String> {
+    let current = app_data_dir(app)?;
+    let legacy = legacy_app_data_dir(app)?;
+    if current != legacy && legacy.exists() {
+        copy_known_file(&legacy.join("settings.json"), &current.join("settings.json"))?;
+        copy_known_file(&legacy.join("notes.json"), &current.join("notes.json"))?;
+
+        // 旧 MCP 客户端持有旧授权路径；删除授权文件可立即撤销其目录访问。
+        let legacy_mcp = legacy.join(LEGACY_MCP_ACCESS_FILE);
+        if legacy_mcp.exists() {
+            fs::remove_file(&legacy_mcp)
+                .map_err(|error| format!("无法停用旧 MCP 授权：{error}"))?;
+        }
+    }
+    // 安全策略明确禁止继续读取旧明文 Key；升级后由用户重新填写。
+    remove_plaintext_api_keys(&legacy_api_key_paths(app)?)?;
+    remove_legacy_app_dir_if_empty(app)
+}
+
+pub(crate) fn get_api_key(app: &tauri::AppHandle) -> Result<Option<String>, String> {
+    migrate_legacy_app_data(app)?;
+    SystemCredentialStore.get()
 }
 
 pub(crate) fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> {
@@ -173,6 +284,7 @@ pub(crate) fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> 
 }
 
 pub(crate) fn load_app_settings(app: &tauri::AppHandle) -> Result<AppSettings, String> {
+    migrate_legacy_app_data(app)?;
     let path = settings_path(app)?;
     let mut settings = if path.exists() {
         let data = fs::read(&path).map_err(|error| format!("无法读取设置：{error}"))?;
@@ -221,9 +333,12 @@ pub(crate) fn save_app_settings(
 
 #[tauri::command]
 pub(crate) fn load_settings(app: tauri::AppHandle) -> Result<SettingsView, String> {
+    let settings = load_app_settings(&app)?;
+    let credential = get_api_key(&app);
     Ok(SettingsView {
-        settings: load_app_settings(&app)?,
-        has_api_key: get_api_key(&app).is_some(),
+        settings,
+        has_api_key: credential.as_ref().is_ok_and(Option::is_some),
+        credential_error: credential.err(),
     })
 }
 
@@ -237,23 +352,53 @@ pub(crate) fn save_settings(
     if let Some(api_key) = api_key {
         let api_key = api_key.trim();
         if !api_key.is_empty() {
-            write_api_key_file(&api_key_path(&app)?, api_key)?;
+            save_secure_api_key(&SystemCredentialStore, api_key)?;
+            remove_plaintext_api_keys(&legacy_api_key_paths(&app)?)?;
         }
     }
+    let credential = get_api_key(&app);
     Ok(SettingsView {
         settings,
-        has_api_key: get_api_key(&app).is_some(),
+        has_api_key: credential.as_ref().is_ok_and(Option::is_some),
+        credential_error: credential.err(),
     })
 }
 
 #[tauri::command]
 pub(crate) fn clear_ai_api_key(app: tauri::AppHandle) -> Result<(), String> {
-    delete_api_key_file(&api_key_path(&app)?)
+    SystemCredentialStore.delete()?;
+    remove_plaintext_api_keys(&legacy_api_key_paths(&app)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    #[derive(Default)]
+    struct FakeCredentialStore {
+        value: RefCell<Option<String>>,
+        reject_writes: bool,
+    }
+
+    impl CredentialStore for FakeCredentialStore {
+        fn get(&self) -> Result<Option<String>, String> {
+            Ok(self.value.borrow().clone())
+        }
+
+        fn set(&self, value: &str) -> Result<(), String> {
+            if self.reject_writes {
+                return Err("模拟安全存储失败".to_string());
+            }
+            self.value.replace(Some(value.to_string()));
+            Ok(())
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            self.value.replace(None);
+            Ok(())
+        }
+    }
 
     #[test]
     fn infers_known_and_custom_ai_providers() {
@@ -294,17 +439,49 @@ mod tests {
     }
 
     #[test]
-    fn stores_api_key_in_a_private_local_file() {
+    fn saves_api_key_directly_in_secure_storage() {
+        let store = FakeCredentialStore::default();
+
+        save_secure_api_key(&store, "test-secret").expect("save API key");
+
+        assert_eq!(store.get().unwrap().as_deref(), Some("test-secret"));
+    }
+
+    #[test]
+    fn removes_legacy_plaintext_api_key_without_reading_it() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("ai-api-key");
-        write_api_key_file(&path, "  test-secret  ").expect("save API key");
-        assert_eq!(read_api_key_file(&path).as_deref(), Some("test-secret"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-        }
-        delete_api_key_file(&path).expect("remove API key");
+        fs::write(&path, b"legacy-value").expect("write legacy API key");
+
+        remove_plaintext_api_keys(std::slice::from_ref(&path)).expect("remove legacy API key");
+
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn reports_secure_storage_write_failure() {
+        let store = FakeCredentialStore {
+            reject_writes: true,
+            ..Default::default()
+        };
+
+        let result = save_secure_api_key(&store, "test-secret");
+
+        assert!(result.is_err());
+        assert!(store.get().unwrap().is_none());
+    }
+
+    #[test]
+    fn copies_known_app_data_before_removing_the_old_file() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let source = directory.path().join("old/settings.json");
+        let destination = directory.path().join("new/settings.json");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, br#"{"version":1}"#).unwrap();
+
+        copy_known_file(&source, &destination).expect("migrate settings");
+
+        assert!(!source.exists());
+        assert_eq!(fs::read(destination).unwrap(), br#"{"version":1}"#);
     }
 }

@@ -101,12 +101,14 @@ pub(crate) struct AppSettings {
 pub(crate) struct SettingsView {
     pub(crate) settings: AppSettings,
     pub(crate) has_api_key: bool,
+    pub(crate) credential_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpSetupInfo {
     pub(crate) enabled: bool,
+    pub(crate) service_name: String,
     pub(crate) executable_path: String,
     pub(crate) access_file_path: String,
 }

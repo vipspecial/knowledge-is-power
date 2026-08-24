@@ -309,7 +309,7 @@ pub(crate) async fn stream_ai(
     let (system, user) = build_prompts(&request, settings.max_context_chars);
     let body = request_body(&settings, &system, &user, true);
     let url = endpoint(&settings.base_url, &settings.protocol);
-    let api_key = get_api_key(&app);
+    let api_key = get_api_key(&app)?;
     let request = client()?
         .post(url)
         .header(CONTENT_TYPE, "application/json")
@@ -413,7 +413,7 @@ pub(crate) async fn test_ai_connection(
         false,
     );
     let url = endpoint(&settings.base_url, &settings.protocol);
-    let stored_key = get_api_key(&app);
+    let stored_key = get_api_key(&app)?;
     let key = api_key
         .as_deref()
         .filter(|key| !key.trim().is_empty())
@@ -448,7 +448,7 @@ pub(crate) async fn list_ai_models(
     api_key: Option<String>,
 ) -> Result<Vec<String>, String> {
     validate_ai_settings(&settings)?;
-    let stored_key = get_api_key(&app);
+    let stored_key = get_api_key(&app)?;
     let key = api_key
         .as_deref()
         .filter(|key| !key.trim().is_empty())

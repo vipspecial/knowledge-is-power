@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "拿了桔子跑啊",
-  "version": "0.10.0",
-  "identifier": "com.peter.mojian",
+  "version": "0.11.0",
+  "identifier": "com.peter.orange-run-notes",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

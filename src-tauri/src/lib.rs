@@ -29,6 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            settings::migrate_legacy_app_data(app.handle()).map_err(std::io::Error::other)?;
             setup_tray(app)?;
             setup_close_to_tray(app)?;
             Ok(())

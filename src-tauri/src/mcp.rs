@@ -14,6 +14,7 @@ use std::{
 use tauri::Manager;
 
 const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+const MCP_SERVER_NAME: &str = "orange-run-notes";
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_QUERY_CHARS: usize = 200;
 const MAX_SEARCH_RESULTS: usize = 50;
@@ -292,6 +293,7 @@ fn setup_info(app: &tauri::AppHandle) -> Result<McpSetupInfo, String> {
     };
     Ok(McpSetupInfo {
         enabled,
+        service_name: MCP_SERVER_NAME.to_string(),
         executable_path: executable_path()?.to_string_lossy().into_owned(),
         access_file_path: access_file.to_string_lossy().into_owned(),
     })
@@ -327,7 +329,7 @@ fn initialize_result(params: &Value) -> Value {
         "protocolVersion": protocol_version,
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": {
-            "name": "orange-run-knowledge",
+            "name": MCP_SERVER_NAME,
             "title": "拿了桔子跑啊 · 本地知识库",
             "version": env!("CARGO_PKG_VERSION")
         },
@@ -648,7 +650,7 @@ mod tests {
     fn initializes_and_lists_read_only_tools() {
         let (_directory, server) = server_fixture();
         let initialized = request(&server, "initialize", json!({ "protocolVersion": "2025-06-18" }));
-        assert_eq!(initialized["result"]["serverInfo"]["name"], "orange-run-knowledge");
+        assert_eq!(initialized["result"]["serverInfo"]["name"], "orange-run-notes");
 
         let tools = request(&server, "tools/list", json!({}));
         let names: Vec<&str> = tools["result"]["tools"]

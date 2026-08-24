@@ -14,7 +14,10 @@ use tauri::Manager;
 const MAX_NOTE_COUNT: usize = 10_000;
 const MAX_KNOWLEDGE_BASE_COUNT: usize = 100;
 const MAX_STORE_BYTES: usize = 20 * 1024 * 1024;
-const MANIFEST_NAME: &str = ".mojian-library.json";
+const MANIFEST_NAME: &str = ".orange-run-notes-library.json";
+const LEGACY_MANIFEST_NAME: &str = ".mojian-library.json";
+const METADATA_PREFIX: &str = "<!-- orange-run-notes-meta:";
+const LEGACY_METADATA_PREFIX: &str = "<!-- mojian-meta:";
 
 /// The manifest owns library-level structure and maps stable note IDs to files.
 /// User-authored content stays in ordinary Markdown files rather than a database.
@@ -147,7 +150,7 @@ fn render_note(note: &Note) -> Result<String, String> {
     let metadata = URL_SAFE_NO_PAD.encode(metadata);
     let title = note.title.replace(['\r', '\n'], " ");
     Ok(format!(
-        "<!-- mojian-meta:{metadata} -->\n\n# {}\n\n{}\n",
+        "{METADATA_PREFIX}{metadata} -->\n\n# {}\n\n{}\n",
         title.trim(),
         note.content
     ))
@@ -155,8 +158,9 @@ fn render_note(note: &Note) -> Result<String, String> {
 
 fn parse_note(data: &str) -> Result<Note, String> {
     let first_line = data.lines().next().ok_or("Markdown 文档为空")?;
-    let encoded = first_line
-        .strip_prefix("<!-- mojian-meta:")
+    let encoded = [METADATA_PREFIX, LEGACY_METADATA_PREFIX]
+        .iter()
+        .find_map(|prefix| first_line.strip_prefix(prefix))
         .and_then(|line| line.strip_suffix(" -->"))
         .ok_or("Markdown 文档缺少拿了桔子跑啊元数据")?;
     let metadata = URL_SAFE_NO_PAD
@@ -189,7 +193,13 @@ fn parse_note(data: &str) -> Result<Note, String> {
 }
 
 fn read_manifest(root: &Path) -> Result<Option<LibraryManifest>, String> {
-    let path = root.join(MANIFEST_NAME);
+    let current_path = root.join(MANIFEST_NAME);
+    let legacy_path = root.join(LEGACY_MANIFEST_NAME);
+    let path = if current_path.exists() {
+        current_path
+    } else {
+        legacy_path
+    };
     if !path.exists() {
         return Ok(None);
     }
@@ -215,7 +225,7 @@ fn write_if_changed(path: &Path, data: &[u8]) -> Result<(), String> {
     }
     let parent = path.parent().ok_or("文档路径无效")?;
     fs::create_dir_all(parent).map_err(|error| format!("无法创建文档目录：{error}"))?;
-    let temporary = path.with_extension("mojian.tmp");
+    let temporary = path.with_extension("orange-run-notes.tmp");
     fs::write(&temporary, data).map_err(|error| format!("无法写入文档：{error}"))?;
     if path.exists() {
         fs::remove_file(path).map_err(|error| format!("无法更新文档：{error}"))?;
@@ -277,7 +287,13 @@ pub(crate) fn write_store_to_directory(root: &Path, store: &NotesStore) -> Resul
     if data.len() > MAX_STORE_BYTES {
         return Err("知识库清单不能超过 20 MB".to_string());
     }
-    write_if_changed(&root.join(MANIFEST_NAME), &data)
+    write_if_changed(&root.join(MANIFEST_NAME), &data)?;
+    let legacy_manifest = root.join(LEGACY_MANIFEST_NAME);
+    if legacy_manifest.exists() {
+        fs::remove_file(legacy_manifest)
+            .map_err(|error| format!("无法移除旧知识库清单：{error}"))?;
+    }
+    Ok(())
 }
 
 fn read_store_from_directory(root: &Path, manifest: LibraryManifest) -> Result<NotesStore, String> {
@@ -477,6 +493,20 @@ mod tests {
         assert_eq!(parsed.deleted_at, note.deleted_at);
         assert_eq!(parsed.tags, note.tags);
         assert!(parsed.pinned);
+        assert!(markdown.starts_with(METADATA_PREFIX));
+    }
+
+    #[test]
+    fn reads_legacy_markdown_metadata() {
+        let note = sample_note();
+        let markdown = render_note(&note)
+            .expect("note should render")
+            .replacen(METADATA_PREFIX, LEGACY_METADATA_PREFIX, 1);
+
+        let parsed = parse_note(&markdown).expect("legacy metadata should remain readable");
+
+        assert_eq!(parsed.id, note.id);
+        assert_eq!(parsed.content, note.content);
     }
 
     #[test]
@@ -492,6 +522,7 @@ mod tests {
             notes: vec![sample_note()],
         };
         write_store_to_directory(directory.path(), &store).expect("library should be written");
+        assert!(directory.path().join(MANIFEST_NAME).exists());
         let manifest = read_manifest(directory.path())
             .expect("manifest should be readable")
             .expect("manifest should exist");
@@ -508,6 +539,31 @@ mod tests {
             .expect("library should load from markdown");
         assert_eq!(loaded.notes.len(), 1);
         assert_eq!(loaded.notes[0].content, store.notes[0].content);
+    }
+
+    #[test]
+    fn rewrites_legacy_manifest_with_the_current_name() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let knowledge_base = KnowledgeBase {
+            id: "base-12345678".to_string(),
+            name: "产品知识".to_string(),
+            created_at: "2026-08-18T00:00:00Z".to_string(),
+        };
+        let store = NotesStore {
+            knowledge_bases: vec![knowledge_base],
+            notes: vec![sample_note()],
+        };
+        write_store_to_directory(directory.path(), &store).expect("write current library");
+        fs::rename(
+            directory.path().join(MANIFEST_NAME),
+            directory.path().join(LEGACY_MANIFEST_NAME),
+        )
+        .expect("prepare legacy manifest");
+
+        write_store_to_directory(directory.path(), &store).expect("rewrite legacy library");
+
+        assert!(directory.path().join(MANIFEST_NAME).exists());
+        assert!(!directory.path().join(LEGACY_MANIFEST_NAME).exists());
     }
 
     #[test]

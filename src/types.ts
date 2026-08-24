@@ -52,10 +52,12 @@ export interface AppSettings {
 export interface SettingsView {
   settings: AppSettings;
   hasApiKey: boolean;
+  credentialError?: string | null;
 }
 
 export interface McpSetupInfo {
   enabled: boolean;
+  serviceName: string;
   executablePath: string;
   accessFilePath: string;
 }

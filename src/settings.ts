@@ -1,9 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inferAiProvider } from "./aiProviders";
+import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "./browserStorage";
 import type { AiProtocol, AiSettings, AppSettings, McpSetupInfo, NotesStore, SettingsView } from "./types";
-
-const settingsStorageKey = "mojian-settings";
-const mcpEnabledStorageKey = "mojian-mcp-enabled";
 
 export const defaultSettings: AppSettings = {
   general: {
@@ -53,10 +51,11 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
 
 export async function loadAppSettings(): Promise<SettingsView> {
   if (isRunningInTauri()) return invoke<SettingsView>("load_settings");
-  const stored = localStorage.getItem(settingsStorageKey);
+  const stored = readBrowserStorage(browserStorageKeys.settings);
   return {
     settings: normalizeSettings(stored ? JSON.parse(stored) : {}),
     hasApiKey: false,
+    credentialError: null,
   };
 }
 
@@ -70,8 +69,8 @@ export async function saveAppSettings(
       apiKey: apiKey?.trim() || null,
     });
   }
-  localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
-  return { settings, hasApiKey: Boolean(apiKey) };
+  writeBrowserStorage(browserStorageKeys.settings, JSON.stringify(settings));
+  return { settings, hasApiKey: false, credentialError: null };
 }
 
 export async function clearApiKey(): Promise<void> {
@@ -81,7 +80,8 @@ export async function clearApiKey(): Promise<void> {
 export async function getMcpSetupInfo(): Promise<McpSetupInfo> {
   if (isRunningInTauri()) return invoke<McpSetupInfo>("get_mcp_setup_info");
   return {
-    enabled: localStorage.getItem(mcpEnabledStorageKey) === "true",
+    enabled: readBrowserStorage(browserStorageKeys.mcpEnabled) === "true",
+    serviceName: "orange-run-notes",
     executablePath: "",
     accessFilePath: "",
   };
@@ -89,8 +89,8 @@ export async function getMcpSetupInfo(): Promise<McpSetupInfo> {
 
 export async function setMcpEnabled(enabled: boolean): Promise<McpSetupInfo> {
   if (isRunningInTauri()) return invoke<McpSetupInfo>("set_mcp_enabled", { enabled });
-  localStorage.setItem(mcpEnabledStorageKey, String(enabled));
-  return { enabled, executablePath: "", accessFilePath: "" };
+  writeBrowserStorage(browserStorageKeys.mcpEnabled, String(enabled));
+  return { enabled, serviceName: "orange-run-notes", executablePath: "", accessFilePath: "" };
 }
 
 export async function chooseDocumentDirectory(store: NotesStore): Promise<string | null> {

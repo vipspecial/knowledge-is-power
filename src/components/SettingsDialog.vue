@@ -27,6 +27,7 @@ import type { AiProtocol, AppSettings, McpSetupInfo, NotesStore } from "../types
 const props = defineProps<{
   settings: AppSettings;
   hasApiKey: boolean;
+  credentialError?: string;
   store: NotesStore;
   saving: boolean;
   initialTab?: SettingsTab;
@@ -83,7 +84,7 @@ const mcpInstallInfo = computed(() => {
   return [
     "请在当前 AI 工具中安装并启用以下 stdio MCP 服务，同时保留已有 MCP 配置。",
     "",
-    "服务名称：orange-run-knowledge",
+    `服务名称：${setup.serviceName}`,
     `可执行文件：${setup.executablePath}`,
     "启动参数：",
     "--mcp",
@@ -261,11 +262,16 @@ async function testConnection(): Promise<void> {
 }
 
 async function removeApiKey(): Promise<void> {
-  await clearApiKey();
-  apiKey.value = "";
-  emit("keyCleared");
-  testState.value = "idle";
-  testMessage.value = "已从本地应用配置中移除 API Key";
+  try {
+    await clearApiKey();
+    apiKey.value = "";
+    emit("keyCleared");
+    testState.value = "idle";
+    testMessage.value = "已从系统安全凭据中移除 API Key";
+  } catch (error) {
+    testState.value = "error";
+    testMessage.value = `移除失败：${String(error)}`;
+  }
 }
 
 async function checkForAppUpdates(): Promise<void> {
@@ -543,9 +549,10 @@ onMounted(async () => {
                   />
                   <button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button>
                 </div>
-                <small v-if="hasApiKey">密钥已保存在本机应用配置中，不会访问系统钥匙串。</small>
+                <small v-if="hasApiKey">密钥已由系统安全凭据存储保护，不会写入设置文件或文档目录。</small>
+                <small v-if="credentialError" class="provider-key-warning">安全凭据不可用：{{ credentialError }}</small>
                 <small v-if="credentialScopeChanged && hasApiKey" class="provider-key-warning">服务商或 API 域名已切换，请输入新 Key；无 Key 服务请先移除旧密钥。</small>
-                <small>本地配置文件仅限当前系统用户访问，但不具备系统钥匙串的加密保护。</small>
+                <small>首次保存或读取时，系统可能要求确认访问钥匙串、凭据管理器或 Secret Service。</small>
                 <button v-if="hasApiKey" class="clear-key" type="button" @click="removeApiKey">移除已保存密钥</button>
               </label>
               <label class="field">
@@ -622,11 +629,13 @@ onMounted(async () => {
                 </div>
               </div>
 
+              <p class="mcp-bundled-note">MCP 已随桌面应用内置，无需执行 npm 全局安装；应用升级时会一起更新。</p>
+
               <div class="mcp-copy-row">
                 <span class="mcp-install-mark" aria-hidden="true">MCP</span>
                 <div>
                   <strong>通用安装信息</strong>
-                  <p>复制后粘贴给目标 AI，或导入其 MCP 设置。</p>
+                  <p>{{ mcpSetup?.serviceName }} · 复制后粘贴给目标 AI，或导入其 MCP 设置。</p>
                 </div>
                 <button
                   class="mcp-copy-button"
@@ -713,6 +722,7 @@ onMounted(async () => {
 .storage-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid #e2ded5;border-radius:11px;background:#fff}.folder-icon{display:grid;width:40px;height:40px;place-items:center;border-radius:10px;color:#5c735f;background:#e9efe9}.storage-card>div:last-child{display:grid;min-width:0;gap:5px}.storage-card strong,.storage-info strong{font-size:14px}.storage-card code{overflow:hidden;color:#777168;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.choose-directory{justify-self:start}.storage-info{margin-top:10px;padding:16px;border-radius:10px;color:#767067;background:#f2efe8}.storage-info p{margin-top:7px;font-size:13px;line-height:1.55}.about-settings{padding:14px 4px}.about-product{display:flex;align-items:center;gap:14px;text-align:left}.about-product img{width:58px;height:58px;border-radius:16px;box-shadow:0 10px 30px rgb(50 66 54 / 16%)}.about-product h3{margin:0;font-size:17px}.about-product p,.privacy-note{margin-top:5px;color:#7f796f;font-size:13px;line-height:1.65}.update-card{position:relative;display:grid;grid-template-columns:1fr auto;gap:5px 16px;margin-top:7px;padding:16px;border:1px solid #e3ded4;border-radius:12px;background:#fff;text-align:left}.update-card>div:first-child{min-width:0}.update-card strong{font-size:14px}.update-card p{margin:5px 0 0;color:#878076;font-size:13px;line-height:1.55}.update-card>button{height:33px;align-self:center;padding:0 12px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:700}.update-card>button:disabled{opacity:.58;cursor:default}.update-card.available{border-color:var(--accent-border);background:#fffaf5}
 .switch-row.disabled{cursor:default;opacity:.6}
 .mcp-scope-card{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-scope-card.disabled,.mcp-install-card.disabled{opacity:.55}.mcp-scope-icon{display:grid;width:36px;height:36px;flex:0 0 auto;place-items:center;border-radius:10px;color:var(--accent-strong);background:var(--accent-soft);font-size:20px}.mcp-scope-card>div:last-child{display:grid;min-width:0;gap:4px}.mcp-scope-card strong,.mcp-install-heading strong,.mcp-copy-row strong{font-size:14px}.mcp-scope-card p,.mcp-install-heading p,.mcp-copy-row p{margin:0;color:#827b72;font-size:13px;line-height:1.5}.mcp-scope-card code{overflow:hidden;color:#6f6960;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.mcp-install-card{display:grid;gap:12px;padding:15px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-install-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.mcp-install-heading>div{display:grid;gap:4px}.mcp-copy-row{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px;border:1px solid #e7e1d8;border-radius:10px;background:#faf8f4}.mcp-copy-row>div{display:grid;min-width:0;gap:3px}.mcp-install-mark{display:grid;width:42px;height:42px;place-items:center;border-radius:11px;color:var(--accent-strong);background:var(--accent-soft);font-size:11px;font-weight:800;letter-spacing:.04em}.mcp-copy-button{height:34px;flex:0 0 auto;padding:0 13px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:13px;font-weight:700}.mcp-copy-button:disabled{cursor:default;opacity:.55}.mcp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0;padding:0;list-style:none}.mcp-steps li{display:flex;gap:7px;align-items:flex-start}.mcp-steps li>span{flex:0 0 auto;color:var(--accent-strong);font-size:16px;line-height:1.2}.mcp-steps p{margin:0;color:#858077;font-size:12px;line-height:1.45}.mcp-steps strong{display:block;color:#5c564e;font-size:12px}.mcp-message{color:var(--accent-strong)!important;font-size:13px!important}.mcp-security-note{padding:11px 13px;border-radius:9px;color:#7c756c;background:#f3efe8;font-size:12px!important;line-height:1.55}
+.mcp-bundled-note{margin:0;color:#777168;font-size:12px;line-height:1.5}
 .update-busy{align-self:center;color:var(--accent-strong);font-size:13px;font-weight:700}.update-progress{grid-column:1/-1;height:4px!important;margin-top:7px;overflow:hidden;border-radius:99px;background:#eee8df}.update-progress i{display:block;height:100%;border-radius:inherit;background:var(--accent-solid);transition:width .18s}.update-notes{grid-column:1/-1;max-height:64px;overflow:auto;white-space:pre-line}.privacy-note{max-width:500px;margin:3px 0 0!important}
 .directory-message{margin:0;color:#54715c!important;font-size:13px!important}
 .settings-content>footer{display:flex;min-height:63px;align-items:center;justify-content:space-between;padding:12px 25px;border-top:1px solid #e8e4db}.settings-content footer>span{color:#aaa399;font-size:13px}.settings-content footer div{display:flex;gap:8px}.settings-content footer button{height:34px;padding:0 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:650}.settings-content footer .cancel{border:1px solid #ddd8cf;background:#fffefa}.settings-content footer .save{border:1px solid #4d6654;color:#fff;background:#4d6654}.settings-content footer .save:disabled{opacity:.55}

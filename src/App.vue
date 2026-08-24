@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { createDocumentAiRequest, streamAi } from "./ai";
+import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "./browserStorage";
 import AiPanel from "./components/AiPanel.vue";
 import AiWritingDialog from "./components/AiWritingDialog.vue";
 import AppContextMenu from "./components/AppContextMenu.vue";
@@ -52,12 +53,13 @@ const settingsInitialTab = ref<"general" | "ai" | "storage" | "mcp" | "about">("
 const savingSettings = ref(false);
 const settings = ref<AppSettings>(cloneAppSettings(defaultSettings));
 const hasApiKey = ref(false);
+const credentialError = ref("");
 const aiPanelOpen = ref(false);
 const showAiWritingDialog = ref(false);
-const sidebarCollapsed = ref(localStorage.getItem("orange-run-sidebar-collapsed") === "true");
-const libraryRailCollapsed = ref(localStorage.getItem("orange-run-library-collapsed") === "true");
+const sidebarCollapsed = ref(readBrowserStorage(browserStorageKeys.sidebarCollapsed) === "true");
+const libraryRailCollapsed = ref(readBrowserStorage(browserStorageKeys.libraryRailCollapsed) === "true");
 const activeNavigation = ref<"library" | "trash">("library");
-const noteListMode = ref<NoteListMode>(localStorage.getItem("orange-run-note-list-mode") === "outline" ? "outline" : "cards");
+const noteListMode = ref<NoteListMode>(readBrowserStorage(browserStorageKeys.noteListMode) === "outline" ? "outline" : "cards");
 const collapsedNoteIds = ref<Set<string>>(new Set());
 const documentMenuOpen = ref(false);
 const editorAiMenuOpen = ref(false);
@@ -69,8 +71,8 @@ const titleInput = ref<HTMLInputElement | null>(null);
 const noteListPane = ref<InstanceType<typeof NoteListPane> | null>(null);
 const aiPanel = ref<InstanceType<typeof AiPanel> | null>(null);
 const richTextEditor = ref<InstanceType<typeof RichTextEditor> | null>(null);
-const sidebarWidth = ref(clamp(readStoredNumber("orange-run-sidebar-width-v3", 264), 220, 380));
-const aiPanelWidth = ref(clamp(readStoredNumber("orange-run-ai-panel-width-v2", 330), 300, 480));
+const sidebarWidth = ref(clamp(readStoredNumber(browserStorageKeys.sidebarWidth, 264), 220, 380));
+const aiPanelWidth = ref(clamp(readStoredNumber(browserStorageKeys.aiPanelWidth, 330), 300, 480));
 const metadataAiBusy = ref<"title" | "tags" | null>(null);
 const contextMenu = ref<ContextMenuState | null>(null);
 const isMacOsDesktop =
@@ -115,19 +117,19 @@ const layoutStyle = computed(() => ({
 
 function toggleSidebar(): void {
   sidebarCollapsed.value = !sidebarCollapsed.value;
-  localStorage.setItem("orange-run-sidebar-collapsed", String(sidebarCollapsed.value));
+  writeBrowserStorage(browserStorageKeys.sidebarCollapsed, String(sidebarCollapsed.value));
 }
 
 function toggleLibraryRail(): void {
   libraryRailCollapsed.value = !libraryRailCollapsed.value;
-  localStorage.setItem("orange-run-library-collapsed", String(libraryRailCollapsed.value));
+  writeBrowserStorage(browserStorageKeys.libraryRailCollapsed, String(libraryRailCollapsed.value));
 }
 
 function openNavigation(): void {
   libraryRailCollapsed.value = false;
   sidebarCollapsed.value = false;
-  localStorage.setItem("orange-run-library-collapsed", "false");
-  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+  writeBrowserStorage(browserStorageKeys.libraryRailCollapsed, "false");
+  writeBrowserStorage(browserStorageKeys.sidebarCollapsed, "false");
 }
 
 function openTrash(): void {
@@ -136,7 +138,7 @@ function openTrash(): void {
   aiPanelOpen.value = false;
   selectedId.value = null;
   searchQuery.value = "";
-  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+  writeBrowserStorage(browserStorageKeys.sidebarCollapsed, "false");
 }
 
 function closeTrash(): void {
@@ -146,7 +148,7 @@ function closeTrash(): void {
 
 function setNoteListMode(mode: NoteListMode): void {
   noteListMode.value = mode;
-  localStorage.setItem("orange-run-note-list-mode", mode);
+  writeBrowserStorage(browserStorageKeys.noteListMode, mode);
 }
 
 function toggleNoteBranch(id: string): void {
@@ -203,7 +205,7 @@ function toggleMenu(menu: "document" | "editorAi"): void {
 }
 
 function readStoredNumber(key: string, fallback: number): number {
-  const value = Number(localStorage.getItem(key));
+  const value = Number(readBrowserStorage(key));
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
@@ -224,8 +226,8 @@ function maximumAiPanelWidth(): number {
 }
 
 function persistPanelWidths(): void {
-  localStorage.setItem("orange-run-sidebar-width-v3", String(Math.round(sidebarWidth.value)));
-  localStorage.setItem("orange-run-ai-panel-width-v2", String(Math.round(aiPanelWidth.value)));
+  writeBrowserStorage(browserStorageKeys.sidebarWidth, String(Math.round(sidebarWidth.value)));
+  writeBrowserStorage(browserStorageKeys.aiPanelWidth, String(Math.round(aiPanelWidth.value)));
 }
 
 function startPanelResize(target: ResizeTarget, event: PointerEvent): void {
@@ -487,8 +489,8 @@ function revealGlobalSearchResult(knowledgeBaseId: string, noteId: string): void
   showGlobalSearchDialog.value = false;
   libraryRailCollapsed.value = false;
   sidebarCollapsed.value = false;
-  localStorage.setItem("orange-run-library-collapsed", "false");
-  localStorage.setItem("orange-run-sidebar-collapsed", "false");
+  writeBrowserStorage(browserStorageKeys.libraryRailCollapsed, "false");
+  writeBrowserStorage(browserStorageKeys.sidebarCollapsed, "false");
 
   const nextCollapsed = new Set(collapsedNoteIds.value);
   let parentId = note.parentId;
@@ -825,6 +827,7 @@ async function saveSettingsFromDialog(
     const view = await saveAppSettings(updatedSettings, apiKey);
     settings.value = view.settings;
     hasApiKey.value = view.hasApiKey;
+    credentialError.value = view.credentialError ?? "";
     showSettingsDialog.value = false;
     showToast("设置已保存");
   } catch (error) {
@@ -964,6 +967,7 @@ onMounted(async () => {
     const settingsView = await loadAppSettings();
     settings.value = settingsView.settings;
     hasApiKey.value = settingsView.hasApiKey;
+    credentialError.value = settingsView.credentialError ?? "";
 
     const store = await loadStore();
     knowledgeBases.value = store.knowledgeBases;
@@ -1369,13 +1373,14 @@ onBeforeUnmount(() => {
       v-if="showSettingsDialog"
       :settings="settings"
       :has-api-key="hasApiKey"
+      :credential-error="credentialError"
       :store="storeSnapshot"
       :saving="savingSettings"
       :initial-tab="settingsInitialTab"
       @close="showSettingsDialog = false"
       @save="saveSettingsFromDialog"
       @directory-changed="handleDirectoryChanged"
-      @key-cleared="hasApiKey = false"
+      @key-cleared="hasApiKey = false; credentialError = ''"
     />
   </main>
 </template>

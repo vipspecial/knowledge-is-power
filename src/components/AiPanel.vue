@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
 import { createDocumentAiRequest, streamAi } from "../ai";
+import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "../browserStorage";
 import { createStreamPacer } from "../streaming";
 import type {
   AiApplyPayload,
@@ -60,7 +61,6 @@ const chatInput = ref("");
 const busy = ref(false);
 const messageList = ref<HTMLElement | null>(null);
 const taskQueue: AiPanelTask[] = [];
-const documentModelStorageKey = "orange-run-document-ai-model-v1";
 const documentModels = ref<Record<string, string>>(loadDocumentModels());
 
 const quickPrompts = [
@@ -91,7 +91,7 @@ const currentModel = computed(() =>
 
 function loadDocumentModels(): Record<string, string> {
   try {
-    const stored = JSON.parse(localStorage.getItem(documentModelStorageKey) ?? "{}") as Record<string, unknown>;
+    const stored = JSON.parse(readBrowserStorage(browserStorageKeys.documentAiModels) ?? "{}") as Record<string, unknown>;
     return Object.fromEntries(
       Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
     );
@@ -116,7 +116,7 @@ function selectDocumentModel(event: Event): void {
   next[props.note.id] = model;
   const recent = Object.fromEntries(Object.entries(next).slice(-500));
   documentModels.value = recent;
-  localStorage.setItem(documentModelStorageKey, JSON.stringify(recent));
+  writeBrowserStorage(browserStorageKeys.documentAiModels, JSON.stringify(recent));
 }
 
 function conversationFor(documentId: string): AiMessage[] {
@@ -158,7 +158,9 @@ async function runRequest(options: RunOptions): Promise<void> {
   const requestPrompt = history
     ? `${options.prompt}\n\n以下是本文章最近的对话，只用于理解追问上下文：\n${history}`
     : options.prompt;
-  const assistant: AiMessage = {
+  // Keep the exact object updated by the stream reactive; mutating the raw
+  // object after pushing it into a reactive array would only repaint at the end.
+  const assistant = reactive<AiMessage>({
     id: createId(),
     role: "assistant",
     content: "",
@@ -168,7 +170,7 @@ async function runRequest(options: RunOptions): Promise<void> {
     target: options.target,
     range: options.range,
     pending: true,
-  };
+  });
   messages.push({
     id: createId(),
     role: "user",
