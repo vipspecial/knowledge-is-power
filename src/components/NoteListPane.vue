@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { flattenNoteTree, notesMatchingQuery } from "../noteTree";
 import type { Note, NoteListMode } from "../types";
 
@@ -24,6 +24,7 @@ const emit = defineEmits<{
   context: [id: string, event: MouseEvent];
 }>();
 
+const createMenuOpen = ref(false);
 const searchExpanded = ref(Boolean(props.searchQuery));
 const searchInput = ref<HTMLInputElement | null>(null);
 const visibleNotes = computed(() => notesMatchingQuery(props.notes, props.searchQuery));
@@ -34,7 +35,26 @@ const rows = computed(() => flattenNoteTree(
 
 watch(() => props.knowledgeBaseName, () => {
   searchExpanded.value = false;
+  createMenuOpen.value = false;
 });
+
+onMounted(() => window.addEventListener("click", closeCreateMenu));
+onBeforeUnmount(() => window.removeEventListener("click", closeCreateMenu));
+
+function closeCreateMenu(): void {
+  createMenuOpen.value = false;
+}
+
+function createRootNote(): void {
+  closeCreateMenu();
+  emit("addNote");
+}
+
+function createChildNote(): void {
+  if (!props.selectedId) return;
+  closeCreateMenu();
+  emit("addChild", props.selectedId);
+}
 
 function focusSearch(): void {
   searchExpanded.value = true;
@@ -68,30 +88,18 @@ defineExpose({ focusSearch });
 
 <template>
   <aside class="sidebar document-pane" aria-label="文档列表">
-    <header class="document-pane-header">
-      <div class="document-create-actions">
-        <button class="document-create" type="button" :title="`新建文档（${shortcutPrefix}N）`" @click="emit('addNote')">
-          <span>＋</span>新建文档
-        </button>
-        <button
-          class="document-create-child"
-          type="button"
-          :disabled="!selectedId"
-          :title="selectedId ? '在当前文档下新建子文档' : '请先选择一篇文档'"
-          @click="selectedId && emit('addChild', selectedId)"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v8a3 3 0 0 0 3 3h4M16 11v8M12 15h8"/></svg>
-          子文档
-        </button>
-      </div>
-    </header>
-
     <section class="document-pane-navigation" aria-label="当前知识库导航">
       <div class="document-toolbar-row" :class="{ 'search-active': searchExpanded || searchQuery }">
-        <span v-if="!searchExpanded && !searchQuery" class="document-toolbar-label">文档</span>
+        <div
+          v-if="!searchExpanded && !searchQuery"
+          class="document-pane-title"
+          :aria-label="`当前知识库：${knowledgeBaseName || '文档'}，${notes.length} 篇`"
+        >
+          <strong :title="knowledgeBaseName || '文档'">{{ knowledgeBaseName || '文档' }}</strong>
+        </div>
         <button
           v-if="!searchExpanded && !searchQuery"
-          class="current-search-toggle"
+          class="document-tool-button"
           type="button"
           title="搜索当前知识库"
           aria-label="搜索当前知识库"
@@ -113,14 +121,41 @@ defineExpose({ focusSearch });
           <button type="button" title="关闭搜索" aria-label="关闭当前知识库搜索" @mousedown.prevent @click="closeSearch">×</button>
         </label>
 
-        <div v-if="!searchExpanded && !searchQuery" class="list-mode-switch" aria-label="文档列表显示方式">
-          <button :class="{ active: mode === 'cards' }" type="button" title="显示标题与摘要" aria-label="卡片模式" @click="emit('setMode', 'cards')">▤</button>
-          <button :class="{ active: mode === 'outline' }" type="button" title="只显示标题与层级" aria-label="层级模式" @click="emit('setMode', 'outline')">☷</button>
-        </div>
-      </div>
+        <button
+          v-if="!searchExpanded && !searchQuery"
+          class="document-tool-button"
+          type="button"
+          :title="mode === 'cards' ? '切换为仅标题' : '切换为标题与摘要'"
+          :aria-label="mode === 'cards' ? '切换为仅标题' : '切换为标题与摘要'"
+          @click="emit('setMode', mode === 'cards' ? 'outline' : 'cards')"
+        >
+          <svg v-if="mode === 'cards'" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="5" rx="1"/><rect x="4" y="14" width="16" height="5" rx="1"/></svg>
+          <svg v-else class="mode-list-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4.5" cy="6" r=".8"/><circle cx="4.5" cy="12" r=".8"/><circle cx="4.5" cy="18" r=".8"/></svg>
+        </button>
 
-      <div class="document-pane-title">
-        <div><strong>{{ knowledgeBaseName || '文档' }}</strong><small>{{ notes.length }} 篇</small></div>
+        <div v-if="!searchExpanded && !searchQuery" class="document-create-menu" @click.stop @keydown.esc="closeCreateMenu">
+          <button
+            class="document-tool-button"
+            type="button"
+            title="新建文档"
+            aria-label="新建文档"
+            aria-haspopup="menu"
+            :aria-expanded="createMenuOpen"
+            @click="createMenuOpen = !createMenuOpen"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v5h5M12 11v6M9 14h6"/></svg>
+          </button>
+          <div v-if="createMenuOpen" class="document-create-popup" role="menu">
+            <button type="button" role="menuitem" @click="createRootNote">
+              <span>＋</span>
+              <span><strong>新建文档</strong><small>当前知识库 · {{ shortcutPrefix }}N</small></span>
+            </button>
+            <button type="button" role="menuitem" :disabled="!selectedId" @click="createChildNote">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v8a3 3 0 0 0 3 3h4M16 11v8M12 15h8"/></svg>
+              <span><strong>新建子文档</strong><small>{{ selectedId ? '创建在当前文档下' : '请先选择一篇文档' }}</small></span>
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -180,87 +215,8 @@ defineExpose({ focusSearch });
   background: #f4f1ea;
 }
 
-.document-pane-header {
-  display: flex;
-  height: 68px;
-  flex: 0 0 68px;
-  align-items: center;
-  padding: 0 10px;
-  border-bottom: 1px solid #e0dbd1;
-}
-
-.document-create-actions {
-  display: flex;
-  width: 100%;
-  height: 34px;
-  gap: 6px;
-}
-
-.document-create,
-.document-create-child {
-  display: flex;
-  height: 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.document-create {
-  min-width: 0;
-  flex: 1;
-  color: #fff;
-  background: var(--accent-solid);
-  box-shadow: 0 4px 14px rgb(175 82 18 / 12%);
-}
-
-.document-create span {
-  font-size: 16px;
-}
-
-.document-create:hover {
-  background: var(--accent-strong);
-}
-
-.document-create-child {
-  flex: 0 0 auto;
-  border: 1px solid #d9d3c9;
-  color: #6d665d;
-  background: #fffefa;
-}
-
-.document-create-child:hover:not(:disabled) {
-  border-color: var(--accent-border);
-  color: var(--accent-strong);
-  background: var(--accent-softest);
-}
-
-.document-create-child:disabled {
-  cursor: default;
-  opacity: .48;
-}
-
-.document-create-child svg {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
 .document-pane-navigation {
-  display: flex;
   flex: 0 0 auto;
-  flex-direction: column;
-  gap: 4px;
   padding: 8px 10px 0;
 }
 
@@ -276,17 +232,11 @@ defineExpose({ focusSearch });
   justify-content: stretch;
 }
 
-.document-toolbar-label {
-  color: #837d74;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .07em;
-}
-
-.current-search-toggle {
+.document-tool-button {
   display: grid;
   width: 34px;
   height: 34px;
+  flex: 0 0 34px;
   place-items: center;
   padding: 0;
   border: 1px solid #ddd8ce;
@@ -296,17 +246,17 @@ defineExpose({ focusSearch });
   cursor: pointer;
 }
 
-.document-toolbar-row > .current-search-toggle {
+.document-pane-title + .document-tool-button {
   margin-left: auto;
 }
 
-.current-search-toggle:hover {
+.document-tool-button:hover {
   border-color: var(--accent-border);
   color: var(--accent-strong);
   background: var(--accent-softest);
 }
 
-.current-search-toggle svg,
+.document-tool-button svg,
 .document-search > svg {
   width: 15px;
   height: 15px;
@@ -314,6 +264,92 @@ defineExpose({ focusSearch });
   stroke: currentColor;
   stroke-linecap: round;
   stroke-width: 1.8;
+}
+
+.document-tool-button svg rect {
+  fill: none;
+}
+
+.document-tool-button .mode-list-icon circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.document-create-menu {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+
+.document-create-popup {
+  position: absolute;
+  z-index: 24;
+  top: 40px;
+  right: 0;
+  display: grid;
+  width: 210px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #ded8ce;
+  border-radius: 10px;
+  background: #fffefa;
+  box-shadow: 0 12px 32px rgb(46 40 31 / 18%);
+}
+
+.document-create-popup button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #5d574f;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.document-create-popup button:hover:not(:disabled) {
+  color: var(--accent-strong);
+  background: var(--accent-softest);
+}
+
+.document-create-popup button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.document-create-popup button > span:first-child,
+.document-create-popup button > svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.document-create-popup button > svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.document-create-popup button > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.document-create-popup strong {
+  font-size: 13px;
+}
+
+.document-create-popup small {
+  color: #999187;
+  font-size: 12px;
 }
 
 .document-search {
@@ -375,62 +411,22 @@ defineExpose({ focusSearch });
 
 .document-pane-title {
   display: flex;
-  height: 31px;
   min-width: 0;
+  height: 34px;
+  flex: 1;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 7px;
   padding: 0 2px;
 }
 
-.document-pane-title > div:first-child {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 7px;
-}
-
 .document-pane-title strong {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: #4a463f;
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.document-pane-title small {
-  color: #999288;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.list-mode-switch {
-  display: flex;
-  flex: 0 0 auto;
-  padding: 2px;
-  border: 1px solid #ded9cf;
-  border-radius: 7px;
-  background: #ece9e2;
-}
-
-.list-mode-switch button {
-  display: grid;
-  width: 25px;
-  height: 21px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  color: #89837a;
-  background: transparent;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.list-mode-switch button.active {
-  color: var(--accent-strong);
-  background: #fffefa;
-  box-shadow: 0 1px 3px rgb(52 47 38 / 10%);
 }
 
 .document-list {
@@ -599,11 +595,9 @@ defineExpose({ focusSearch });
   font-size: 13px;
 }
 
-.document-create:focus-visible,
-.document-create-child:focus-visible,
-.current-search-toggle:focus-visible,
+.document-tool-button:focus-visible,
 .document-search button:focus-visible,
-.list-mode-switch button:focus-visible {
+.document-create-popup button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
