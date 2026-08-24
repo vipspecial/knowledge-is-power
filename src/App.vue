@@ -456,9 +456,22 @@ function openGlobalSearch(): void {
 
 function startWindowDrag(event: PointerEvent): void {
   if (event.button !== 0 || !("__TAURI_INTERNALS__" in window)) return;
+  // The second press belongs to a double-click; do not start another native drag.
+  if (event.detail > 1) {
+    event.preventDefault();
+    return;
+  }
   event.preventDefault();
   void import("@tauri-apps/api/window")
     .then(({ getCurrentWindow }) => getCurrentWindow().startDragging())
+    .catch(() => undefined);
+}
+
+function toggleWindowMaximize(event: MouseEvent): void {
+  if (event.button !== 0 || !("__TAURI_INTERNALS__" in window)) return;
+  event.preventDefault();
+  void import("@tauri-apps/api/window")
+    .then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize())
     .catch(() => undefined);
 }
 
@@ -1023,6 +1036,7 @@ onBeforeUnmount(() => {
       data-tauri-drag-region
       aria-label="窗口标题栏"
       @pointerdown="startWindowDrag"
+      @dblclick="toggleWindowMaximize"
     ></header>
 
     <KnowledgeRail
