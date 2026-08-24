@@ -66,6 +66,7 @@ const selectionRange = ref({ start: 0, end: 0 });
 const knowledgeBaseDialog = ref<"create" | "rename" | "delete" | null>(null);
 const knowledgeBaseName = ref("");
 const titleInput = ref<HTMLInputElement | null>(null);
+const noteListPane = ref<InstanceType<typeof NoteListPane> | null>(null);
 const aiPanel = ref<InstanceType<typeof AiPanel> | null>(null);
 const richTextEditor = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const sidebarWidth = ref(clamp(readStoredNumber("orange-run-sidebar-width-v3", 264), 220, 380));
@@ -451,6 +452,14 @@ function selectNote(id: string): void {
 function openGlobalSearch(): void {
   closeMenus();
   showGlobalSearchDialog.value = true;
+}
+
+function startWindowDrag(event: PointerEvent): void {
+  if (event.button !== 0 || !("__TAURI_INTERNALS__" in window)) return;
+  event.preventDefault();
+  void import("@tauri-apps/api/window")
+    .then(({ getCurrentWindow }) => getCurrentWindow().startDragging())
+    .catch(() => undefined);
 }
 
 function revealGlobalSearchResult(knowledgeBaseId: string, noteId: string): void {
@@ -875,7 +884,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (modifier && event.key.toLocaleLowerCase() === "f") {
     event.preventDefault();
-    document.querySelector<HTMLInputElement>(".document-search input")?.focus();
+    noteListPane.value?.focusSearch();
   }
   if (modifier && event.key.toLocaleLowerCase() === "s") {
     event.preventDefault();
@@ -966,7 +975,7 @@ onMounted(async () => {
       notes.value = [
         makeNote(
           "欢迎使用",
-          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + F` 搜索，`⌘/Ctrl + J` 打开 AI 写作\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
+          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + K` 全局搜索，`⌘/Ctrl + F` 搜索当前知识库\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
         ),
       ];
       notes.value[0].tags = ["开始", "AI"];
@@ -1013,6 +1022,7 @@ onBeforeUnmount(() => {
       class="app-titlebar"
       data-tauri-drag-region
       aria-label="窗口标题栏"
+      @pointerdown="startWindowDrag"
     ></header>
 
     <KnowledgeRail
@@ -1023,6 +1033,7 @@ onBeforeUnmount(() => {
       :save-state="saveState"
       :trash-active="activeNavigation === 'trash'"
       :trash-count="trashedNotes.length"
+      :shortcut-prefix="shortcutPrefix"
       @select="selectKnowledgeBase"
       @create="openCreateKnowledgeBase"
       @rename="openRenameKnowledgeBase"
@@ -1030,6 +1041,7 @@ onBeforeUnmount(() => {
       @import="importMarkdown"
       @toggle-rail="toggleLibraryRail"
       @open-trash="openTrash"
+      @open-global-search="openGlobalSearch"
       @context="openKnowledgeBaseContextMenu"
       @open-settings="openSettings"
     />
@@ -1056,6 +1068,8 @@ onBeforeUnmount(() => {
 
     <NoteListPane
       v-if="!sidebarCollapsed && activeNavigation === 'library'"
+      :key="selectedKnowledgeBaseId ?? 'no-knowledge-base'"
+      ref="noteListPane"
       v-model:search-query="searchQuery"
       :notes="sortedNotes"
       :selected-id="selectedId"
@@ -1070,7 +1084,6 @@ onBeforeUnmount(() => {
       @set-mode="setNoteListMode"
       @toggle-branch="toggleNoteBranch"
       @context="openNoteContextMenu"
-      @open-global-search="openGlobalSearch"
     />
 
     <TrashPane

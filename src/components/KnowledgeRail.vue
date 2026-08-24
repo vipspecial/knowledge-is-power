@@ -8,6 +8,7 @@ const props = defineProps<{
   saveState: SaveState;
   trashActive: boolean;
   trashCount: number;
+  shortcutPrefix: string;
 }>();
 
 const emit = defineEmits<{
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   import: [];
   toggleRail: [];
   openTrash: [];
+  openGlobalSearch: [];
   context: [id: string, event: MouseEvent];
   openSettings: [tab: "general" | "ai" | "storage" | "about"];
 }>();
@@ -35,6 +37,12 @@ function noteCount(id: string): number {
     </header>
 
     <section class="rail-library-section">
+      <button class="rail-global-search" type="button" @click="emit('openGlobalSearch')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <span>全局搜索</span>
+        <kbd>{{ shortcutPrefix }}K</kbd>
+      </button>
+
       <header>
         <span>全部知识库</span>
         <div class="rail-section-actions">
@@ -42,6 +50,7 @@ function noteCount(id: string): number {
           <button class="rail-collapse-button" type="button" title="收起知识库栏" aria-label="收起知识库栏" @click="emit('toggleRail')">‹</button>
         </div>
       </header>
+
       <div class="rail-library-list">
         <div
           v-for="base in knowledgeBases"
@@ -78,14 +87,335 @@ function noteCount(id: string): number {
 </template>
 
 <style scoped>
-.library-rail{display:flex;min-width:0;min-height:0;flex-direction:column;overflow:hidden;border-right:1px solid #ddd8ce;background:#ebe8e0}.rail-brand{display:flex;height:58px;flex:0 0 auto;align-items:center;gap:10px;padding:0 10px;border-bottom:1px solid #ddd8ce}.rail-brand img{width:35px;height:35px;flex:0 0 auto;border-radius:10px;box-shadow:0 3px 9px rgb(43 58 47 / 13%)}.rail-brand strong{color:#37342e;font-family:"Songti SC",STSong,"SimSun",serif;font-size:15px;white-space:nowrap}.rail-library-section{display:flex;min-height:0;flex:1;flex-direction:column;padding:10px 7px}.rail-library-section>header{display:flex;height:27px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 3px 0 7px;color:#827c72;font-size:13px;font-weight:700;letter-spacing:.07em}.rail-section-actions{display:flex;align-items:center;gap:1px}.rail-library-section>header button{display:grid;width:23px;height:25px;flex:0 0 auto;place-items:center;padding:0;border:0;border-radius:7px;color:#767168;background:transparent;cursor:pointer;font-size:19px}.rail-library-section>header button:hover{color:#405948;background:rgb(255 255 255 / 58%)}.rail-library-section>header .rail-collapse-button{font-size:18px}.rail-library-list{min-height:0;overflow-y:auto;overscroll-behavior:contain}.rail-library-list::-webkit-scrollbar{width:7px}.rail-library-list::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#bbb5aa;background-clip:padding-box}.rail-library-row{display:flex;min-width:0;height:34px;align-items:center;margin-bottom:2px;border-radius:8px}.rail-library-row:hover{background:rgb(255 255 255 / 42%)}.rail-library-row.active{background:#fffefa;box-shadow:inset 2px 0 #55705d,0 2px 7px rgb(55 49 40 / 5%)}.rail-library-select{display:flex;min-width:0;height:100%;flex:1;align-items:center;gap:7px;padding:0 5px 0 9px;border:0;color:#5f5a52;background:transparent;cursor:pointer;text-align:left}.rail-library-select svg{width:15px;height:15px;flex:0 0 auto;fill:none;stroke:#748077;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.7}.rail-library-select span{min-width:0;flex:1;overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.rail-library-select small{color:#9c968c;font-size:12px}.rail-library-actions{display:flex;padding-right:3px}.rail-library-actions button{display:grid;width:20px;height:24px;place-items:center;padding:0;border:0;border-radius:5px;color:#8d877e;background:transparent;cursor:pointer;font-size:13px}.rail-library-actions button:hover{color:#405948;background:#e8e8e1}.trash-link{width:100%}.trash-link:hover,.trash-link.active{color:#415849;background:rgb(255 255 255 / 58%)}.trash-link small{margin-left:auto;color:#9d968c;font-size:12px}.rail-tools{display:grid;flex:0 0 auto;gap:2px;padding:8px;border-top:1px solid #d9d4ca}.rail-tools>button{display:flex;height:31px;align-items:center;gap:9px;padding:0 9px;border:0;border-radius:7px;color:#69645b;background:transparent;cursor:pointer;font-size:13px;text-align:left}.rail-tools>button:hover{color:#3f5847;background:rgb(255 255 255 / 60%)}.rail-tools>button span{display:grid;width:17px;place-items:center;color:#617267;font-size:15px}.rail-save-state{display:flex;align-items:center;gap:6px;margin-top:5px;padding:6px 9px 1px;color:#979086;font-size:12px}.rail-save-state i{width:6px;height:6px;border-radius:50%;background:#78927e}.rail-save-state i.saving{background:#c29957;animation:pulse 1s infinite}.rail-save-state i.error{background:#bd5d54}@keyframes pulse{50%{opacity:.35}}
-/* Orange is the only product accent; green remains confined to the logo leaf. */
-.rail-library-section>header button:hover{color:var(--accent-strong);background:var(--accent-softest)}
-.rail-library-row.active{box-shadow:inset 2px 0 var(--accent),0 2px 7px rgb(55 49 40 / 5%)}
-.rail-library-select svg,.rail-tools>button span{stroke:var(--accent);color:var(--accent)}
-.rail-library-actions button:hover,.trash-link:hover,.trash-link.active,.rail-tools>button:hover{color:var(--accent-strong);background:var(--accent-softest)}
-.rail-brand{height:68px}
-.rail-brand img{width:44px;height:44px;border-radius:13px;box-shadow:0 4px 12px rgb(43 58 47 / 15%)}
-.rail-brand strong{font-size:15px;font-weight:700;letter-spacing:.01em}
-@media(max-width:980px){.rail-brand{gap:8px;padding:0 8px}.rail-brand img{width:40px;height:40px;border-radius:12px}.rail-brand strong{font-size:14px}}
+.library-rail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #ddd8ce;
+  background: #ebe8e0;
+}
+
+.rail-brand {
+  display: flex;
+  height: 68px;
+  flex: 0 0 68px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-bottom: 1px solid #ddd8ce;
+}
+
+.rail-brand img {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 13px;
+  box-shadow: 0 4px 12px rgb(43 58 47 / 15%);
+}
+
+.rail-brand strong {
+  overflow: hidden;
+  color: #37342e;
+  font-family: "Songti SC", STSong, "SimSun", serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-library-section {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 8px 7px;
+}
+
+.rail-global-search {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid #d8d2c8;
+  border-radius: 8px;
+  color: #716b62;
+  background: rgb(255 255 255 / 58%);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.rail-global-search:hover {
+  border-color: var(--accent-border);
+  color: var(--accent-strong);
+  background: var(--accent-softest);
+}
+
+.rail-global-search svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.rail-global-search span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-global-search kbd {
+  color: #9d968c;
+  font-size: 12px;
+}
+
+.rail-library-section > header {
+  display: flex;
+  height: 31px;
+  flex: 0 0 31px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 0 3px 0 7px;
+  color: #827c72;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .07em;
+}
+
+.rail-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.rail-library-section > header button {
+  display: grid;
+  width: 23px;
+  height: 25px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: #767168;
+  background: transparent;
+  cursor: pointer;
+  font-size: 19px;
+}
+
+.rail-library-section > header button:hover {
+  color: var(--accent-strong);
+  background: var(--accent-softest);
+}
+
+.rail-library-section > header .rail-collapse-button {
+  font-size: 18px;
+}
+
+.rail-library-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.rail-library-list::-webkit-scrollbar {
+  width: 7px;
+}
+
+.rail-library-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #bbb5aa;
+  background-clip: padding-box;
+}
+
+.rail-library-row {
+  display: flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  margin-bottom: 2px;
+  border-radius: 8px;
+}
+
+.rail-library-row:hover {
+  background: rgb(255 255 255 / 42%);
+}
+
+.rail-library-row.active {
+  background: #fffefa;
+  box-shadow: inset 2px 0 var(--accent), 0 2px 7px rgb(55 49 40 / 5%);
+}
+
+.rail-library-select {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  padding: 0 5px 0 9px;
+  border: 0;
+  color: #5f5a52;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rail-library-select svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.rail-library-select span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-library-select small,
+.trash-link small {
+  color: #9c968c;
+  font-size: 12px;
+}
+
+.rail-library-actions {
+  display: flex;
+  padding-right: 3px;
+}
+
+.rail-library-actions button {
+  display: grid;
+  width: 20px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: #8d877e;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.rail-library-actions button:hover,
+.trash-link:hover,
+.trash-link.active,
+.rail-tools > button:hover {
+  color: var(--accent-strong);
+  background: var(--accent-softest);
+}
+
+.rail-tools {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 8px;
+  border-top: 1px solid #d9d4ca;
+}
+
+.rail-tools > button {
+  display: flex;
+  height: 31px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #69645b;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.rail-tools > button span {
+  display: grid;
+  width: 17px;
+  place-items: center;
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.trash-link {
+  width: 100%;
+}
+
+.trash-link small {
+  margin-left: auto;
+}
+
+.rail-save-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding: 6px 9px 1px;
+  color: #979086;
+  font-size: 12px;
+}
+
+.rail-save-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #78927e;
+}
+
+.rail-save-state i.saving {
+  background: #c29957;
+  animation: pulse 1s infinite;
+}
+
+.rail-save-state i.error {
+  background: #bd5d54;
+}
+
+.rail-global-search:focus-visible,
+.rail-library-section > header button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes pulse {
+  50% { opacity: .35; }
+}
+
+@media (max-width: 980px) {
+  .rail-brand {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .rail-brand img {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+
+  .rail-brand strong {
+    font-size: 14px;
+  }
+}
 </style>

@@ -99,6 +99,7 @@ button {
   border-bottom: 1px solid #ded9cf;
   background: #f7f5f0;
   color: #555048;
+  cursor: default;
   user-select: none;
 }
 
