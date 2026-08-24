@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { computed, nextTick, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { abortAiStream, createDocumentAiRequest, streamAi } from "../ai";
 import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "../browserStorage";
+import { renderMermaidSvg } from "../mermaid";
 import { createStreamPacer } from "../streaming";
 import type {
   AiApplyPayload,
@@ -290,6 +291,37 @@ function applyMessage(message: AiMessage, documentId: string): void {
 }
 
 defineExpose({ acceptTask });
+
+/** 会话空闲后把已生成消息里的 Mermaid 代码块替换为渲染图示，语法错误时保留源码。 */
+async function renderMermaidBlocks(): Promise<void> {
+  if (busy.value || !messageList.value) return;
+  const blocks = messageList.value.querySelectorAll<HTMLElement>(
+    "pre > code.language-mermaid:not([data-mermaid-done])",
+  );
+  for (const code of blocks) {
+    code.dataset.mermaidDone = "1";
+    const source = code.textContent ?? "";
+    if (!source.trim()) continue;
+    try {
+      const svg = await renderMermaidSvg(source);
+      const figure = document.createElement("div");
+      figure.className = "message-mermaid";
+      figure.innerHTML = svg;
+      code.parentElement?.replaceWith(figure);
+    } catch {
+      // 保留代码块原样展示。
+    }
+  }
+}
+
+watch(
+  () => [busy.value, conversations.value] as const,
+  () => {
+    void nextTick(() => void renderMermaidBlocks());
+  },
+  { deep: true },
+);
+
 onBeforeUnmount(() => {
   streamPacer.reset();
   streamTarget = null;
@@ -401,6 +433,7 @@ onBeforeUnmount(() => {
 
 .ai-actions button.featured{grid-column:1/-1;color:#fff;border-color:#506c58;background:#506c58}
 .ai-composer button.stop-button{background:#a34f47;font-size:12px}
+.message-mermaid{overflow-x:auto;margin:.6em 0;padding:10px;border:1px solid #e6e1d7;border-radius:8px;background:#fff;text-align:center}.message-mermaid svg{max-width:100%;height:auto}
 .ai-actions button.featured:hover:not(:disabled){color:#fff;border-color:#3f5b48;background:#435f4c}
 .ai-actions button.featured span{color:#fff}
 .article-writer{display:grid;gap:8px;margin:10px 11px 0;padding:11px;border:1px solid #d9dfd9;border-radius:9px;background:#f0f5f0}

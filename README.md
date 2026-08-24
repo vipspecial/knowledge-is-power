@@ -46,6 +46,7 @@
 | 富文本编辑器 | TipTap 3（ProseMirror） | 所见即所得且模型成熟，长文与复杂格式（表格、任务列表）稳定不丢数据；基于扩展架构，按需引入 Markdown、高亮、表格能力；Markdown 可作为存储格式完整往返转换。 |
 | Markdown 解析 | @tiptap/markdown + marked | 编辑器往返转换用 @tiptap/markdown 保证保真度；AI 会话区用 marked 渲染流式输出的不完整 Markdown，轻量且容错好。 |
 | HTML 净化 | DOMPurify | AI 与 Markdown 生成的 HTML 必须净化后渲染，防止提示注入引入恶意标记；事实上的标准方案。 |
+| 图表渲染 | Mermaid（懒加载） | `mermaid` 代码块渲染为图示，源码即 Markdown 不引入私有格式；securityLevel=strict 并经 DOMPurify 净化，动态导入避免拖慢首屏。 |
 | AI 请求层 | Rust（reqwest） | API Key 只存在 Rust 侧，不进 WebView；HTTP 流式（SSE）、超时和错误压缩都在后端收敛，前端经 Tauri Channel 只收结构化事件。 |
 | 密钥存储 | 系统 keyring（macOS 钥匙串 / Windows 凭据管理器 / Linux Secret Service） | API Key 属于敏感凭据，交给操作系统级加密存储，不写设置文件或文档目录。 |
 | AI 协议 | Chat Completions / OpenAI Responses / Anthropic Messages | 覆盖国内外主流服务与本地模型（Ollama 等 OpenAI-compatible 服务），预设之外仍可自定义地址与协议。 |
@@ -67,6 +68,7 @@
 
 - 直接编辑最终排版，无需面对 Markdown 源码
 - 支持标题、列表、任务、引用、代码、链接、表格与高亮
+- `mermaid` 代码块实时渲染流程图、时序图等图表，源码保留可编辑；AI 回复中的 Mermaid 同样渲染
 - 兼容富文本粘贴及 Markdown 文件导入、导出
 
 ### 本地知识管理

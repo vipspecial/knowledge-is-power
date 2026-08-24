@@ -8,6 +8,7 @@ import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorContent, useEditor } from "@tiptap/vue-3";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { MermaidCodeBlock } from "../mermaidCodeBlock";
 import type { AiOperation } from "../types";
 
 interface SelectionPayload {
@@ -51,12 +52,14 @@ const editor = useEditor({
   extensions: [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
+      codeBlock: false,
       link: {
         openOnClick: false,
         enableClickSelection: true,
         markdownLinks: true,
       },
     }),
+    MermaidCodeBlock,
     Highlight,
     Placeholder.configure({ placeholder: "写下此刻…" }),
     TaskList,
@@ -145,6 +148,17 @@ function setLink(): void {
 
 function closeMore(): void {
   moreOpen.value = false;
+}
+
+function insertMermaid(): void {
+  if (!editor.value) return;
+  editor.value
+    .chain()
+    .focus()
+    .insertContent("```mermaid\ngraph TD\n    A[开始] --> B[处理] --> C[结束]\n```", {
+      contentType: "markdown",
+    })
+    .run();
 }
 
 function triggerSelectionAi(operation: AiOperation, label: string, prompt = ""): void {
@@ -314,6 +328,7 @@ defineExpose({ replaceRange, replaceDocument, appendMarkdown });
           <button type="button" role="menuitem" :class="{ active: active('blockquote') }" @click="focusCommand((chain) => chain.toggleBlockquote().run()); closeMore()">引用</button>
           <button type="button" role="menuitem" :class="{ active: active('code') }" @click="focusCommand((chain) => chain.toggleCode().run()); closeMore()">行内代码</button>
           <button type="button" role="menuitem" :class="{ active: active('codeBlock') }" @click="focusCommand((chain) => chain.toggleCodeBlock().run()); closeMore()">代码块</button>
+          <button type="button" role="menuitem" @click="insertMermaid(); closeMore()">Mermaid 图表</button>
           <button type="button" role="menuitem" :class="{ active: active('link') }" @click="setLink(); closeMore()">链接</button>
           <button type="button" role="menuitem" @click="focusCommand((chain) => chain.setHorizontalRule().run()); closeMore()">分割线</button>
           <button type="button" role="menuitem" @click="focusCommand((chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()); closeMore()">插入表格</button>
@@ -403,5 +418,46 @@ defineExpose({ replaceRange, replaceDocument, appendMarkdown });
 
 .rich-editor-content :deep(.rich-document blockquote > p:last-child) {
   margin-bottom: 0;
+}
+
+.rich-editor-content :deep(.mermaid-code-block:not(.is-mermaid)) .mermaid-diagram {
+  display: none;
+}
+
+.rich-editor-content :deep(.mermaid-code-block.is-mermaid) {
+  display: grid;
+  gap: 8px;
+}
+
+.rich-editor-content :deep(.mermaid-diagram) {
+  overflow-x: auto;
+  padding: 14px 16px;
+  border: 1px solid #e0dbd1;
+  border-radius: 9px;
+  background: #fff;
+  text-align: center;
+}
+
+.rich-editor-content :deep(.mermaid-diagram svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+.rich-editor-content :deep(.mermaid-diagram.has-error) {
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+}
+
+.rich-editor-content :deep(.mermaid-diagram.has-error span) {
+  color: #a0785f;
+  font-size: 13px;
+}
+
+.rich-editor-content :deep(.mermaid-code-block.is-mermaid pre) {
+  margin: 0;
+  font-size: 13px;
 }
 </style>
