@@ -10,6 +10,10 @@
 - AI 会话中的 Mermaid 代码块在生成结束后渲染为图示，语法错误时保留源码
 - 图表渲染使用 Mermaid securityLevel=strict 并经 DOMPurify 净化，按需懒加载不影响首屏
 
+### 修复
+
+- 发布产物文件名统一为 ASCII 前缀 `orange-run-notes`：GitHub 会剥离资产名中的中文，导致 `latest.json` 下载链接 404、应用内更新失败
+
 ## 0.11.3 — 2026-08-24
 
 ### 文档

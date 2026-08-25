@@ -154,6 +154,9 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Normalize artifact file names
+        run: node scripts/rename-release-artifacts.mjs release-artifacts
+
       - name: Generate updater manifest
         run: node scripts/generate-update-manifest.mjs release-artifacts
         env:
