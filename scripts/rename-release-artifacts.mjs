@@ -3,7 +3,7 @@
 // 1. GitHub Release 上传资产会剥离非 ASCII 字符，导致 latest.json 下载链接 404；
 // 2. download-artifact 解压含中文文件名的 zip 时文件名可能被破坏，导致资产丢失。
 // 因此在构建机本地（上传 artifact 之前）递归重命名为 ASCII 前缀。
-import { readdirSync, renameSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 const asciiPrefix = "orange-run-notes";
@@ -14,7 +14,11 @@ const renamed = [];
 function normalizeDir(dir) {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
-    if (statSync(path).isDirectory()) {
+    // lstat 不跟随符号链接：Linux bundle 目录里可能有断裂链接，
+    // 跟随会抛 ENOENT；符号链接本身也无需重命名。
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) continue;
+    if (stat.isDirectory()) {
       normalizeDir(path);
       continue;
     }
