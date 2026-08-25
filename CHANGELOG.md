@@ -2,6 +2,12 @@
 
 本文件记录“拿了桔子跑啊”的主要版本变化。
 
+## 0.12.6 — 2026-08-25
+
+### 修复
+
+- Release 持续缺少 macOS 与 Linux 安装包的根因：upload-artifact 按公共前缀剥离路径，跨多个 bundle 子目录的产物（macOS 的 dmg/+macos/、Linux 的 deb/+appimage/）解压后留在子目录，后续步骤与上传 glob 均按平铺目录处理因而全部漏掉（Windows 单目录故一直正常）。Release 任务下载后新增拍平步骤
+
 ## 0.12.5 — 2026-08-25
 
 ### 修复

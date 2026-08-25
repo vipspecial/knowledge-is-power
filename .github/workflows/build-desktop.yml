@@ -160,6 +160,12 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Flatten artifact directories
+        # upload-artifact 按公共前缀剥离路径：跨多个 bundle 子目录的产物
+        # （macOS 的 dmg/+macos/、Linux 的 deb/+appimage/）解压后仍在子目录，
+        # 拍平到 release-artifacts 顶层供后续步骤统一处理。
+        run: find release-artifacts -mindepth 2 -type f -exec mv -n {} release-artifacts/ \;
+
       - name: List downloaded artifacts
         run: ls -la release-artifacts
 
