@@ -354,6 +354,9 @@ pub(crate) fn load_app_settings(app: &tauri::AppHandle) -> Result<AppSettings, S
         settings.ai.provider = infer_ai_provider(&settings.ai.base_url, &settings.ai.protocol);
     }
     normalize_ai_models(&mut settings.ai);
+    if !["small", "standard", "large"].contains(&settings.general.ui_font_size.as_str()) {
+        settings.general.ui_font_size = "standard".to_string();
+    }
     Ok(settings)
 }
 
@@ -364,6 +367,9 @@ pub(crate) fn save_app_settings(
     validate_ai_settings(&settings.ai)?;
     if !(300..=10_000).contains(&settings.general.auto_save_delay_ms) {
         return Err("自动保存等待时间必须在 300 到 10,000 毫秒之间".to_string());
+    }
+    if !["small", "standard", "large"].contains(&settings.general.ui_font_size.as_str()) {
+        return Err("界面字体大小必须是 small、standard 或 large".to_string());
     }
     if settings.document_directory.trim().is_empty() {
         return Err("文档目录不能为空".to_string());

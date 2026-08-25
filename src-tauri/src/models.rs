@@ -41,12 +41,16 @@ pub(crate) struct NotesStore {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct GeneralSettings {
     pub(crate) auto_save_delay_ms: u64,
+    /// 界面字体大小档位：small / standard / large。
+    /// standard 走 CSS 自适应（大窗口自动放大一档），其余为固定档。
+    pub(crate) ui_font_size: String,
 }
 
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             auto_save_delay_ms: 450,
+            ui_font_size: "standard".to_string(),
         }
     }
 }

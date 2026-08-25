@@ -344,12 +344,12 @@ defineExpose({ focusSearch });
 }
 
 .document-create-popup strong {
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .document-create-popup small {
   color: #999187;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .document-search {
@@ -377,7 +377,7 @@ defineExpose({ focusSearch });
   outline: 0;
   color: #3c3832;
   background: transparent;
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .document-search input::-webkit-search-cancel-button {
@@ -386,7 +386,7 @@ defineExpose({ focusSearch });
 
 .document-search kbd {
   color: #a19b91;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .document-search button {
@@ -424,7 +424,7 @@ defineExpose({ focusSearch });
   flex: 1;
   overflow: hidden;
   color: #4a463f;
-  font-size: 14px;
+  font-size:var(--font-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -490,7 +490,7 @@ defineExpose({ focusSearch });
 
 .branch-spacer {
   color: #b7b0a5;
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .document-select {
@@ -516,7 +516,7 @@ defineExpose({ focusSearch });
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 14px;
+  font-size:var(--font-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -524,19 +524,19 @@ defineExpose({ focusSearch });
 .document-title-line time {
   flex: 0 0 auto;
   color: #9b958b;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .pin {
   color: #b8672e;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .document-select p {
   margin: 4px 0 0;
   overflow: hidden;
   color: #827c72;
-  font-size: 13px;
+  font-size:var(--font-sm);
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -552,7 +552,7 @@ defineExpose({ focusSearch });
 .document-tags span {
   overflow: hidden;
   color: #b8672e;
-  font-size: 12px;
+  font-size:var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -573,7 +573,7 @@ defineExpose({ focusSearch });
 }
 
 .mode-outline .document-title-line strong {
-  font-size: 13px;
+  font-size:var(--font-sm);
   font-weight: 560;
 }
 
@@ -584,7 +584,7 @@ defineExpose({ focusSearch });
   gap: 8px;
   color: #999287;
   text-align: center;
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .document-list-message button {
@@ -592,7 +592,7 @@ defineExpose({ focusSearch });
   color: var(--accent-strong);
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .document-tool-button:focus-visible,

@@ -119,7 +119,7 @@ function noteCount(id: string): number {
   overflow: hidden;
   color: #37342e;
   font-family: "Songti SC", STSong, "SimSun", serif;
-  font-size: 15px;
+  font-size:var(--font-lg);
   font-weight: 700;
   letter-spacing: .01em;
   text-overflow: ellipsis;
@@ -147,7 +147,7 @@ function noteCount(id: string): number {
   color: #716b62;
   background: rgb(255 255 255 / 58%);
   cursor: pointer;
-  font-size: 13px;
+  font-size:var(--font-sm);
   text-align: left;
 }
 
@@ -177,7 +177,7 @@ function noteCount(id: string): number {
 
 .rail-global-search kbd {
   color: #9d968c;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .rail-library-section > header {
@@ -189,7 +189,7 @@ function noteCount(id: string): number {
   margin-top: 4px;
   padding: 0 3px 0 7px;
   color: #827c72;
-  font-size: 13px;
+  font-size:var(--font-sm);
   font-weight: 700;
   letter-spacing: .07em;
 }
@@ -289,7 +289,7 @@ function noteCount(id: string): number {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 13px;
+  font-size:var(--font-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -297,7 +297,7 @@ function noteCount(id: string): number {
 .rail-library-select small,
 .trash-link small {
   color: #9c968c;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .rail-library-actions {
@@ -316,7 +316,7 @@ function noteCount(id: string): number {
   color: #8d877e;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size:var(--font-sm);
 }
 
 .rail-library-actions button:hover,
@@ -346,7 +346,7 @@ function noteCount(id: string): number {
   color: #69645b;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size:var(--font-sm);
   text-align: left;
 }
 
@@ -355,7 +355,7 @@ function noteCount(id: string): number {
   width: 17px;
   place-items: center;
   color: var(--accent);
-  font-size: 15px;
+  font-size:var(--font-lg);
 }
 
 .trash-link {
@@ -373,7 +373,7 @@ function noteCount(id: string): number {
   margin-top: 5px;
   padding: 6px 9px 1px;
   color: #979086;
-  font-size: 12px;
+  font-size:var(--font-xs);
 }
 
 .rail-save-state i {
@@ -415,7 +415,7 @@ function noteCount(id: string): number {
   }
 
   .rail-brand strong {
-    font-size: 14px;
+    font-size:var(--font-md);
   }
 }
 </style>

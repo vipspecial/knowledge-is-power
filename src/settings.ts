@@ -1,11 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { inferAiProvider } from "./aiProviders";
 import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "./browserStorage";
-import type { AiProtocol, AiSettings, AppSettings, McpSetupInfo, NotesStore, SettingsView } from "./types";
+import type {
+  AiProtocol,
+  AiSettings,
+  AppSettings,
+  GeneralSettings,
+  McpSetupInfo,
+  NotesStore,
+  SettingsView,
+  UiFontSize,
+} from "./types";
 
 export const defaultSettings: AppSettings = {
   general: {
     autoSaveDelayMs: 450,
+    uiFontSize: "standard",
   },
   ai: {
     enabled: false,
@@ -42,8 +52,13 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
     ai.provider = inferAiProvider(ai.baseUrl, ai.protocol as AiProtocol);
   }
   ai.models = [...new Set([...(storedAi?.models ?? []), ai.model].map((model) => model.trim()).filter(Boolean))];
+  const fontSizes: UiFontSize[] = ["small", "standard", "large"];
+  const storedFont = (settings.general as Partial<GeneralSettings> | undefined)?.uiFontSize;
+  const uiFontSize: UiFontSize = fontSizes.includes(storedFont as UiFontSize)
+    ? (storedFont as UiFontSize)
+    : "standard";
   return {
-    general: { ...defaultSettings.general, ...settings.general },
+    general: { ...defaultSettings.general, ...settings.general, uiFontSize },
     ai,
     documentDirectory: settings.documentDirectory ?? "",
   };

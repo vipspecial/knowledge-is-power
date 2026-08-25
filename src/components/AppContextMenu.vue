@@ -70,7 +70,7 @@ const emit = defineEmits<{
   color: #4d4942;
   background: transparent;
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
   text-align: left;
 }
 

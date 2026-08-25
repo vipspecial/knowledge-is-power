@@ -5,12 +5,45 @@
   --accent-soft: #fff3e9;
   --accent-softest: #fffbf7;
   --accent-border: #f0cfb6;
+  /* 界面字号 token：全部 UI 文本统一引用，改变 token 即可全局缩放。
+     字重只用 400 / 600 / 700 标准档——微软雅黑没有中间字重，
+     650 之类的值在 Windows 会被合成伪粗，跨平台渲染不一致。 */
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 14px;
+  --font-lg: 15px;
   font-family:
     Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   color: #25231f;
-  background: #eeeae1;
+  background: #f5f2ec;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 大窗口（高分屏 100% 缩放）下界面文本整体放大一档，避免 UI 显小。 */
+@media (min-width: 1600px) {
+  :root {
+    --font-xs: 13px;
+    --font-sm: 14px;
+    --font-md: 15px;
+    --font-lg: 16px;
+  }
+}
+
+/* 用户在设置里显式选择字号时，固定档位覆盖上面的自适应缩放。 */
+html[data-ui-font="small"] {
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 14px;
+}
+
+html[data-ui-font="large"] {
+  --font-xs: 13px;
+  --font-sm: 14px;
+  --font-md: 15px;
+  --font-lg: 16px;
 }
 
 * {
@@ -44,7 +77,7 @@ button {
   grid-template-rows: minmax(0, 1fr);
   width: 100%;
   height: 100%;
-  background: #fbfaf7;
+  background: #fcfbf8;
 }
 
 .app-shell.ai-visible {
@@ -97,7 +130,7 @@ button {
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid #ded9cf;
-  background: #f7f5f0;
+  background: #f5f2ec;
   color: #555048;
   cursor: default;
   user-select: none;
@@ -201,7 +234,7 @@ body.panel-resizing {
   overflow: hidden;
   grid-column: 2;
   grid-row: 1;
-  background: #f3f0e9;
+  background: #f1ede3;
 }
 
 .sidebar-collapsed .sidebar {
@@ -384,7 +417,7 @@ body.panel-resizing {
   justify-content: space-between;
   padding: 0 4px 0 7px;
   color: #928c81;
-  font-size:13px;
+  font-size:var(--font-sm);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -399,7 +432,7 @@ body.panel-resizing {
   gap: 5px;
   padding: 0 3px;
   color: #777168;
-  font-size:13px;
+  font-size:var(--font-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
@@ -421,8 +454,8 @@ body.panel-resizing {
 
 .knowledge-panel-heading .knowledge-toggle small {
   color: #aaa399;
-  font-size:12px;
-  font-weight: 500;
+  font-size:var(--font-xs);
+  font-weight:400;
   letter-spacing: 0;
 }
 
@@ -491,7 +524,7 @@ body.panel-resizing {
   background: transparent;
   cursor: pointer;
   text-align: left;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .knowledge-select svg {
@@ -515,7 +548,7 @@ body.panel-resizing {
 
 .knowledge-select small {
   color: #a19b91;
-  font-size:13px;
+  font-size:var(--font-xs);
 }
 
 .knowledge-actions {
@@ -535,7 +568,7 @@ body.panel-resizing {
   color: #8e887f;
   background: transparent;
   cursor: pointer;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .knowledge-actions button:hover {
@@ -582,13 +615,13 @@ body.panel-resizing {
 .brand-row h1 span {
   margin-left: 3px;
   font-family: sans-serif;
-  font-size:15px;
+  font-size:var(--font-xs);
 }
 
 .brand-row p {
   margin-top: 3px;
   color: #8a857b;
-  font-size:13px;
+  font-size:var(--font-xs);
 }
 
 .new-note-button {
@@ -605,7 +638,7 @@ body.panel-resizing {
   background: #4d6654;
   box-shadow: 0 4px 14px rgb(49 80 57 / 13%);
   cursor: pointer;
-  font-size:14px;
+  font-size:var(--font-md);
   font-weight: 600;
   transition: background 150ms ease, transform 150ms ease;
 }
@@ -629,7 +662,7 @@ body.panel-resizing {
   color: #716c62;
   background: rgb(255 255 255 / 55%);
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
   letter-spacing: 0.08em;
 }
 
@@ -695,7 +728,7 @@ body.panel-resizing {
   color: #5e5951;
   background: transparent;
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
   text-align: left;
 }
 
@@ -742,7 +775,7 @@ body.panel-resizing {
   color: #716c62;
   background: transparent;
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
 }
 
 .sidebar-actions button:hover {
@@ -757,8 +790,8 @@ body.panel-resizing {
 kbd {
   border: 0;
   font-family: inherit;
-  font-size:13px;
-  font-weight: 500;
+  font-size:var(--font-sm);
+  font-weight:400;
 }
 
 .new-note-button kbd {
@@ -796,7 +829,7 @@ kbd {
   outline: 0;
   color: #35322c;
   background: transparent;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .search-box input::-webkit-search-cancel-button {
@@ -823,13 +856,13 @@ kbd {
   justify-content: space-between;
   padding: 0 15px;
   color: #777168;
-  font-size:13px;
-  font-weight: 650;
+  font-size:var(--font-sm);
+  font-weight:600;
 }
 
 .note-section-heading small {
   color: #a49e94;
-  font-size:13px;
+  font-size:var(--font-xs);
   font-weight: 400;
 }
 
@@ -878,8 +911,8 @@ kbd {
   flex: 1;
   overflow: hidden;
   color: #34312b;
-  font-size:15px;
-  font-weight: 650;
+  font-size:var(--font-lg);
+  font-weight:600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -887,14 +920,14 @@ kbd {
 .note-card time {
   flex: 0 0 auto;
   color: #9a958a;
-  font-size:13px;
+  font-size:var(--font-xs);
 }
 
 .note-card p {
   margin: 5px 0 0;
   overflow: hidden;
   color: #817c72;
-  font-size:13px;
+  font-size:var(--font-md);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -916,7 +949,7 @@ kbd {
 .card-tags span {
   overflow: hidden;
   color: #718076;
-  font-size:13px;
+  font-size:var(--font-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -928,7 +961,7 @@ kbd {
   gap: 9px;
   color: #989287;
   text-align: center;
-  font-size:15px;
+  font-size:var(--font-lg);
 }
 
 .list-message button {
@@ -936,7 +969,7 @@ kbd {
   color: #4d6654;
   background: none;
   cursor: pointer;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .sidebar-footer {
@@ -947,7 +980,7 @@ kbd {
   padding: 0 14px;
   border-top: 1px solid #e2ddd3;
   color: #928d83;
-  font-size:13px;
+  font-size:var(--font-sm);
 }
 
 .settings-button {
@@ -1007,7 +1040,7 @@ kbd {
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  background: #fbfaf7;
+  background: #fcfbf8;
 }
 
 .editor-toolbar {
@@ -1039,13 +1072,13 @@ kbd {
   color: var(--accent-strong);
   background: var(--accent-softest);
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
   font-weight: 700;
 }
 
 .ai-toggle-button span {
   color: var(--accent);
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .ai-toggle-button:hover,
@@ -1064,7 +1097,7 @@ kbd {
   align-items: center;
   gap: 10px;
   color: #999388;
-  font-size:13px;
+  font-size:var(--font-sm);
 }
 
 .divider {
@@ -1144,8 +1177,8 @@ kbd {
   color: var(--accent-strong);
   background: var(--accent-softest);
   cursor: pointer;
-  font-size:13px;
-  font-weight: 650;
+  font-size:var(--font-sm);
+  font-weight:600;
 }
 
 .field-ai-button span {
@@ -1174,7 +1207,7 @@ kbd {
   gap: 9px;
   margin-bottom: 6px;
   color: #969085;
-  font-size:13px;
+  font-size:var(--font-sm);
 }
 
 .tag-editor > span {
@@ -1193,7 +1226,7 @@ kbd {
   outline: 0;
   color: #777168;
   background: transparent;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .markdown-ai-tools {
@@ -1214,7 +1247,7 @@ kbd {
   color: var(--accent-strong);
   background: transparent;
   cursor: pointer;
-  font-size:13px;
+  font-size:var(--font-sm);
   white-space: nowrap;
 }
 
@@ -1257,7 +1290,7 @@ kbd {
   border-radius: 9px;
   color: #8f403b;
   background: #fff2ef;
-  font-size:14px;
+  font-size:var(--font-md);
 }
 
 .empty-editor {
@@ -1265,7 +1298,7 @@ kbd {
   place-content: center;
   justify-items: center;
   color: #8f897e;
-  background: #fbfaf7;
+  background: #fcfbf8;
   text-align: center;
 }
 
@@ -1298,7 +1331,7 @@ kbd {
 
 .empty-editor p {
   margin: 10px 0 20px;
-  font-size:15px;
+  font-size:var(--font-lg);
 }
 
 .empty-editor button {
@@ -1308,7 +1341,7 @@ kbd {
   color: #fff;
   background: var(--accent-solid);
   cursor: pointer;
-  font-size:15px;
+  font-size:var(--font-lg);
 }
 
 .empty-logo {
@@ -1363,7 +1396,7 @@ kbd {
 .dialog p {
   margin: 0;
   color: #777168;
-  font-size:15px;
+  font-size:var(--font-lg);
   line-height: 1.65;
 }
 
@@ -1378,7 +1411,7 @@ kbd {
   padding: 9px 15px;
   border-radius: 9px;
   cursor: pointer;
-  font-size:15px;
+  font-size:var(--font-lg);
   font-weight: 600;
 }
 
@@ -1392,7 +1425,7 @@ kbd {
   outline: 0;
   color: #3f3b34;
   background: #fff;
-  font-size:15px;
+  font-size:var(--font-lg);
 }
 
 .knowledge-dialog input:focus {
@@ -1458,7 +1491,7 @@ kbd {
   color: #f9f7f1;
   background: rgb(43 43 38 / 92%);
   box-shadow: 0 9px 28px rgb(33 29 24 / 22%);
-  font-size:14px;
+  font-size:var(--font-md);
   backdrop-filter: blur(8px);
 }
 

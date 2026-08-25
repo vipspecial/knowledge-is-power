@@ -26,8 +26,11 @@ export interface NotesStore {
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
+export type UiFontSize = "small" | "standard" | "large";
+
 export interface GeneralSettings {
   autoSaveDelayMs: number;
+  uiFontSize: UiFontSize;
 }
 
 export type AiProtocol = "chatCompletions" | "responses" | "anthropic";

@@ -52,6 +52,19 @@ const showGlobalSearchDialog = ref(false);
 const settingsInitialTab = ref<"general" | "ai" | "storage" | "mcp" | "about">("general");
 const savingSettings = ref(false);
 const settings = ref<AppSettings>(cloneAppSettings(defaultSettings));
+
+// 界面字体档位：standard 移除标记走 CSS 自适应，其余固定档覆盖。
+watch(
+  () => settings.value.general.uiFontSize,
+  (size) => {
+    if (size === "small" || size === "large") {
+      document.documentElement.dataset.uiFont = size;
+    } else {
+      delete document.documentElement.dataset.uiFont;
+    }
+  },
+  { immediate: true },
+);
 const hasApiKey = ref(false);
 const credentialError = ref("");
 const aiPanelOpen = ref(false);
