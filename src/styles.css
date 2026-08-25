@@ -328,6 +328,14 @@ body.panel-resizing {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+/* 折叠按钮平时隐藏，悬停左侧面板或调整条、或键盘聚焦时才出现。 */
+.app-shell:has(.sidebar:hover) .sidebar-resizer .resizer-collapse-button,
+.sidebar-resizer:hover .resizer-collapse-button,
+.sidebar-resizer:focus-within .resizer-collapse-button {
   opacity: 0.72;
 }
 
@@ -756,16 +764,6 @@ body.panel-resizing {
   right: 0;
 }
 
-.document-popup {
-  top: calc(100% + 6px);
-  right: 0;
-}
-
-.ai-tools-popup {
-  top: calc(100% + 6px);
-  right: 0;
-}
-
 .sidebar-actions button {
   display: flex;
   align-items: center;
@@ -1043,30 +1041,13 @@ kbd {
   background: #fcfbf8;
 }
 
-.editor-toolbar {
-  display: flex;
-  height: 40px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  border-bottom: 1px solid #ebe7de;
-  background: rgb(251 250 247 / 94%);
-}
-
-.editor-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .ai-toggle-button {
   display: flex;
-  height: 28px;
+  height: 30px;
+  flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  margin-right: 5px;
-  padding: 0 9px;
+  padding: 0 10px;
   border: 1px solid var(--accent-border);
   border-radius: 8px;
   color: var(--accent-strong);
@@ -1093,25 +1074,9 @@ kbd {
 }
 
 .editor-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #999388;
-  font-size:var(--font-sm);
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-/* 日期与字数是低频信息，悬停工具栏时才显示。 */
-.editor-toolbar:hover .editor-meta,
-.editor-meta:focus-within {
-  opacity: 1;
-}
-
-.divider {
-  width: 1px;
-  height: 10px;
-  background: #d8d3c8;
+  flex: 0 0 auto;
+  color: #a19b90;
+  font-size:var(--font-xs);
 }
 
 .icon-button {
@@ -1178,12 +1143,16 @@ kbd {
   font-size:var(--font-sm);
 }
 
-.tag-editor > span {
+.tag-editor > span:not(.editor-meta) {
   padding: 3px 7px;
   border-radius: 5px;
   color: #a85a25;
   background: var(--accent-softest);
   font-weight: 600;
+}
+
+.tag-editor .editor-meta {
+  margin-left: auto;
 }
 
 .tag-editor input {
@@ -1195,42 +1164,6 @@ kbd {
   color: #777168;
   background: transparent;
   font-size:var(--font-md);
-}
-
-.markdown-ai-tools {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.markdown-ai-tools > button,
-.markdown-ai-tools > .popup-menu-wrap > button {
-  display: flex;
-  height: 27px;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--accent-strong);
-  background: transparent;
-  cursor: pointer;
-  font-size:var(--font-sm);
-  white-space: nowrap;
-}
-
-.markdown-ai-tools button span {
-  color: var(--accent);
-}
-
-.markdown-ai-tools button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.markdown-ai-tools > .popup-menu-wrap > button:hover {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
 }
 
 .title-input::placeholder {
@@ -1468,10 +1401,6 @@ kbd {
   .editor-meta {
     display: none;
   }
-
-  .editor-toolbar {
-    justify-content: flex-end;
-  }
 }
 
 @media (max-width: 980px) {
@@ -1487,10 +1416,6 @@ kbd {
   .editor {
     padding-right: 24px;
     padding-left: 24px;
-  }
-
-  .editor-toolbar {
-    padding: 0 14px;
   }
 
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { abortAiStream, createDocumentAiRequest, streamAi } from "../ai";
 import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "../browserStorage";
 import { renderMermaidSvg } from "../mermaid";
@@ -63,6 +63,7 @@ const emit = defineEmits<{
   close: [];
   openSettings: [];
   apply: [payload: AiApplyPayload];
+  writing: [operation: string];
 }>();
 
 const restoredConversations = loadConversations();
@@ -79,6 +80,29 @@ const copiedMessageId = ref("");
 const reviewMessage = ref<AiMessage | null>(null);
 const conversationStorageError = ref(false);
 let copiedTimer: number | undefined;
+
+/** 全文写作操作菜单：从正文工具栏迁移而来，由 App 层复用原有执行逻辑。 */
+const writingMenuOpen = ref(false);
+
+const writingOperations = [
+  { id: "writing", label: "AI 写作（自定义指令）" },
+  { id: "continue", label: "续写正文" },
+  { id: "proofread", label: "全文校对" },
+  { id: "outline", label: "生成大纲" },
+  { id: "summarize", label: "生成摘要" },
+  { id: "todos", label: "提取行动项" },
+];
+
+function runWriting(operation: string): void {
+  writingMenuOpen.value = false;
+  emit("writing", operation);
+}
+
+function closeWritingMenu(): void {
+  writingMenuOpen.value = false;
+}
+
+onMounted(() => window.addEventListener("click", closeWritingMenu));
 
 const quickPrompts = [
   { label: "快速摘要", prompt: "用一段摘要和三个要点概括当前文档。" },
@@ -449,9 +473,22 @@ function followUpMessage(message: AiMessage): void {
   void nextTick(() => composerInput.value?.focus());
 }
 
+/** window.confirm 在 Tauri WebView 中不可用，清空改为两步确认。 */
+const confirmClearArmed = ref(false);
+let confirmClearTimer = 0;
+
 function clearConversation(): void {
   if (!props.note || busy.value || !currentMessages.value.length) return;
-  if (!window.confirm("清空当前文档的 AI 对话？正文不会受到影响。")) return;
+  if (!confirmClearArmed.value) {
+    confirmClearArmed.value = true;
+    window.clearTimeout(confirmClearTimer);
+    confirmClearTimer = window.setTimeout(() => {
+      confirmClearArmed.value = false;
+    }, 2600);
+    return;
+  }
+  window.clearTimeout(confirmClearTimer);
+  confirmClearArmed.value = false;
   delete conversations.value[props.note.id];
   delete conversationUpdatedAt.value[props.note.id];
   persistConversations();
@@ -529,14 +566,34 @@ onBeforeUnmount(() => {
           <small>当前文档独立会话</small>
         </div>
       </div>
-      <div class="ai-header-actions">
+      <div class="ai-header-actions" @click.stop>
+        <div class="writing-menu-wrap">
+          <button
+            type="button"
+            title="全文 AI 写作操作"
+            aria-haspopup="menu"
+            :aria-expanded="writingMenuOpen"
+            :disabled="!note"
+            @click="writingMenuOpen = !writingMenuOpen"
+          >✦ 写作</button>
+          <div v-if="writingMenuOpen" class="writing-menu-popup" role="menu">
+            <button
+              v-for="item in writingOperations"
+              :key="item.id"
+              type="button"
+              role="menuitem"
+              @click="runWriting(item.id)"
+            >{{ item.label }}</button>
+          </div>
+        </div>
         <button
           v-if="currentMessages.length"
           type="button"
+          :class="{ armed: confirmClearArmed }"
           :disabled="busy"
-          title="清空当前文档对话"
+          :title="confirmClearArmed ? '再点一次确认清空' : '清空当前文档对话'"
           @click="clearConversation"
-        >清空</button>
+        >{{ confirmClearArmed ? '确认清空？' : '清空' }}</button>
         <button type="button" aria-label="关闭 AI 助手" @click="emit('close')">×</button>
       </div>
     </header>
@@ -637,8 +694,17 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.ai-panel{display:flex;min-width:0;min-height:0;flex-direction:column;background:#f1ede3}.ai-header{display:flex;height:62px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #e4e0d7}.ai-header>div{display:flex;align-items:center;gap:9px}.ai-mark{display:grid;width:31px;height:31px;place-items:center;border-radius:9px;color:#f8f4ea;background:linear-gradient(145deg,#5b7863,#354c3c);font-size:var(--font-lg)}.ai-header>div>div{display:flex;flex-direction:column}.ai-header strong{font-size:var(--font-lg)}.ai-header small{margin-top:2px;color:#969086;font-size:var(--font-xs)}.ai-header>button{display:grid;width:28px;height:28px;place-items:center;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:20px}.ai-header>button:hover{background:#ebe7df}.ai-context{display:flex;height:34px;flex:0 0 auto;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #eae6de;color:#827c72}.ai-context span{width:6px;height:6px;border-radius:50%;background:#729079}.ai-context p{min-width:0;overflow:hidden;font-size:var(--font-xs);text-overflow:ellipsis;white-space:nowrap}.ai-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:10px 11px;border-bottom:1px solid #e6e2d9}.ai-actions button{display:flex;height:31px;align-items:center;justify-content:center;gap:5px;border:1px solid #e0dcd3;border-radius:7px;color:#615d55;background:#fffefa;cursor:pointer;font-size:var(--font-sm)}.ai-actions button:hover:not(:disabled){border-color:#bdcbbf;color:#3f6249;background:#f0f5f0}.ai-actions button:disabled{opacity:.45;cursor:default}.ai-actions button span{color:#55705d;font-size:var(--font-sm)}.ai-messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:15px 13px}.ai-messages::-webkit-scrollbar{width:8px}.ai-messages::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#c9c3b8;background-clip:padding-box}.ai-welcome{display:grid;justify-items:center;padding:34px 15px;text-align:center}.ai-welcome>div{display:grid;width:43px;height:43px;place-items:center;margin-bottom:11px;border-radius:13px;color:#52705b;background:#e6eee7;font-size:19px}.ai-welcome h3{margin:0;color:#48443d;font-size:var(--font-lg)}.ai-welcome p{margin:8px 0 17px;color:#8b857c;font-size:var(--font-sm);line-height:1.6}.ai-welcome button{width:100%;margin-bottom:6px;padding:8px 10px;border:1px solid #e0dcd3;border-radius:7px;color:#69645b;background:#fffefa;cursor:pointer;font-size:var(--font-sm);text-align:left}.ai-welcome button:hover{border-color:#bdcbbf;color:#3e5f48}.ai-message{display:flex;gap:7px;margin-bottom:14px}.ai-message.user{justify-content:flex-end}.message-avatar{display:grid;width:23px;height:23px;flex:0 0 auto;place-items:center;border-radius:7px;color:#fff;background:#58715f;font-size:var(--font-xs)}.message-content{min-width:0;max-width:calc(100% - 30px)}.user .message-content{padding:8px 10px;border-radius:10px 10px 3px 10px;color:#f9f7f1;background:#536c5b;font-size:var(--font-md);line-height:1.55}.assistant .message-content{flex:1;padding:10px 11px;border:1px solid #e3dfd6;border-radius:3px 10px 10px;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 4%)}.assistant.error .message-content{border-color:#e5c6c1;background:#fff4f2}.message-operation{display:flex;align-items:center;gap:5px;margin-bottom:5px;color:var(--accent-strong);font-size:var(--font-xs);font-weight:700}.message-operation span{color:var(--accent)}.message-markdown{color:#4d4941;font-size:var(--font-md);line-height:1.65;overflow-wrap:anywhere}.message-markdown :deep(p){margin:.4em 0}.message-markdown :deep(p:first-child){margin-top:0}.message-markdown :deep(p:last-child){margin-bottom:0}.message-markdown :deep(ul),.message-markdown :deep(ol){margin:.5em 0;padding-left:1.5em}.message-markdown :deep(code){padding:.1em .3em;border-radius:3px;background:#efebe4;font-family:ui-monospace,monospace;font-size:.9em}.message-actions{display:flex;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid #eeeae2}.message-actions button{padding:4px 7px;border:1px solid #dce3dc;border-radius:5px;color:#45624d;background:#f2f6f2;cursor:pointer;font-size:var(--font-xs)}.message-actions button:disabled{cursor:default;opacity:.55}.message-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.message-sources span{max-width:100%;overflow:hidden;padding:3px 6px;border-radius:4px;color:#66746a;background:#edf1ed;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.typing{display:flex;gap:3px;padding:5px 1px}.typing i{width:5px;height:5px;border-radius:50%;background:#7d8e81;animation:typing 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes typing{50%{opacity:.3;transform:translateY(-2px)}}.ai-composer{flex:0 0 auto;margin:0 10px 10px;padding:8px 9px;border:1px solid #dcd8cf;border-radius:10px;background:#fffefa;box-shadow:0 4px 16px rgb(50 45 36 / 6%)}.ai-composer textarea{width:100%;min-height:39px;resize:none;border:0;outline:0;color:#47433c;background:transparent;font-size:var(--font-md);line-height:1.5}.ai-composer>div{display:flex;align-items:center;justify-content:space-between}.ai-composer span{color:#aaa399;font-size:11px}.ai-composer button{display:grid;width:25px;height:25px;place-items:center;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:var(--font-lg)}.ai-composer button:disabled{background:#b9bcb6;cursor:default}.ai-disabled{display:grid;place-content:center;justify-items:center;height:100%;padding:30px;text-align:center}.ai-disabled>div{display:grid;width:55px;height:55px;place-items:center;border-radius:16px;color:#506d58;background:#e5ece6;font-size:23px}.ai-disabled h3{margin:15px 0 0;font-size:16px}.ai-disabled p{margin:8px 0 18px;color:#89837a;font-size:var(--font-sm);line-height:1.65}.ai-disabled button{padding:8px 13px;border:0;border-radius:8px;color:white;background:#4d6654;cursor:pointer;font-size:var(--font-sm)}
+.ai-panel{display:flex;min-width:0;min-height:0;flex-direction:column;background:#f1ede3}.ai-header{display:flex;height:62px;flex:0 0 auto;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #e4e0d7}.ai-header>div{display:flex;align-items:center;gap:9px}.ai-mark{display:grid;width:31px;height:31px;place-items:center;border-radius:9px;color:#f8f4ea;background:linear-gradient(145deg,#5b7863,#354c3c);font-size:var(--font-lg)}.ai-header>div>div{display:flex;flex-direction:column}.ai-header strong{font-size:var(--font-lg)}.ai-header small{margin-top:2px;color:#969086;font-size:var(--font-xs)}.ai-context{display:flex;height:34px;flex:0 0 auto;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #eae6de;color:#827c72}.ai-context span{width:6px;height:6px;border-radius:50%;background:#729079}.ai-context p{min-width:0;overflow:hidden;font-size:var(--font-xs);text-overflow:ellipsis;white-space:nowrap}.ai-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:10px 11px;border-bottom:1px solid #e6e2d9}.ai-actions button{display:flex;height:31px;align-items:center;justify-content:center;gap:5px;border:1px solid #e0dcd3;border-radius:7px;color:#615d55;background:#fffefa;cursor:pointer;font-size:var(--font-sm)}.ai-actions button:hover:not(:disabled){border-color:#bdcbbf;color:#3f6249;background:#f0f5f0}.ai-actions button:disabled{opacity:.45;cursor:default}.ai-actions button span{color:#55705d;font-size:var(--font-sm)}.ai-messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:15px 13px}.ai-messages::-webkit-scrollbar{width:8px}.ai-messages::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:#c9c3b8;background-clip:padding-box}.ai-welcome{display:grid;justify-items:center;padding:34px 15px;text-align:center}.ai-welcome>div{display:grid;width:43px;height:43px;place-items:center;margin-bottom:11px;border-radius:13px;color:#52705b;background:#e6eee7;font-size:19px}.ai-welcome h3{margin:0;color:#48443d;font-size:var(--font-lg)}.ai-welcome p{margin:8px 0 17px;color:#8b857c;font-size:var(--font-sm);line-height:1.6}.ai-welcome button{width:100%;margin-bottom:6px;padding:8px 10px;border:1px solid #e0dcd3;border-radius:7px;color:#69645b;background:#fffefa;cursor:pointer;font-size:var(--font-sm);text-align:left}.ai-welcome button:hover{border-color:#bdcbbf;color:#3e5f48}.ai-message{display:flex;gap:7px;margin-bottom:14px}.ai-message.user{justify-content:flex-end}.message-avatar{display:grid;width:23px;height:23px;flex:0 0 auto;place-items:center;border-radius:7px;color:#fff;background:#58715f;font-size:var(--font-xs)}.message-content{min-width:0;max-width:calc(100% - 30px)}.user .message-content{padding:8px 10px;border-radius:10px 10px 3px 10px;color:#f9f7f1;background:#536c5b;font-size:var(--font-md);line-height:1.55}.assistant .message-content{flex:1;padding:10px 11px;border:1px solid #e3dfd6;border-radius:3px 10px 10px;background:#fffefa;box-shadow:0 2px 8px rgb(52 47 38 / 4%)}.assistant.error .message-content{border-color:#e5c6c1;background:#fff4f2}.message-operation{display:flex;align-items:center;gap:5px;margin-bottom:5px;color:var(--accent-strong);font-size:var(--font-xs);font-weight:700}.message-operation span{color:var(--accent)}.message-markdown{color:#4d4941;font-size:var(--font-md);line-height:1.65;overflow-wrap:anywhere}.message-markdown :deep(p){margin:.4em 0}.message-markdown :deep(p:first-child){margin-top:0}.message-markdown :deep(p:last-child){margin-bottom:0}.message-markdown :deep(ul),.message-markdown :deep(ol){margin:.5em 0;padding-left:1.5em}.message-markdown :deep(code){padding:.1em .3em;border-radius:3px;background:#efebe4;font-family:ui-monospace,monospace;font-size:.9em}.message-actions{display:flex;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid #eeeae2}.message-actions button{padding:4px 7px;border:1px solid #dce3dc;border-radius:5px;color:#45624d;background:#f2f6f2;cursor:pointer;font-size:var(--font-xs)}.message-actions button:disabled{cursor:default;opacity:.55}.message-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.message-sources span{max-width:100%;overflow:hidden;padding:3px 6px;border-radius:4px;color:#66746a;background:#edf1ed;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.typing{display:flex;gap:3px;padding:5px 1px}.typing i{width:5px;height:5px;border-radius:50%;background:#7d8e81;animation:typing 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}@keyframes typing{50%{opacity:.3;transform:translateY(-2px)}}.ai-composer{flex:0 0 auto;margin:0 10px 10px;padding:8px 9px;border:1px solid #dcd8cf;border-radius:10px;background:#fffefa;box-shadow:0 4px 16px rgb(50 45 36 / 6%)}.ai-composer textarea{width:100%;min-height:39px;resize:none;border:0;outline:0;color:#47433c;background:transparent;font-size:var(--font-md);line-height:1.5}.ai-composer>div{display:flex;align-items:center;justify-content:space-between}.ai-composer span{color:#aaa399;font-size:11px}.ai-composer button{display:grid;width:25px;height:25px;place-items:center;border:0;border-radius:7px;color:#fff;background:#4d6654;cursor:pointer;font-size:var(--font-lg)}.ai-composer button:disabled{background:#b9bcb6;cursor:default}.ai-disabled{display:grid;place-content:center;justify-items:center;height:100%;padding:30px;text-align:center}.ai-disabled>div{display:grid;width:55px;height:55px;place-items:center;border-radius:16px;color:#506d58;background:#e5ece6;font-size:23px}.ai-disabled h3{margin:15px 0 0;font-size:16px}.ai-disabled p{margin:8px 0 18px;color:#89837a;font-size:var(--font-sm);line-height:1.65}.ai-disabled button{padding:8px 13px;border:0;border-radius:8px;color:white;background:#4d6654;cursor:pointer;font-size:var(--font-sm)}
 
+.ai-header-actions{display:flex;align-items:center;gap:4px}
+.ai-header-actions>button,.writing-menu-wrap>button{height:26px;padding:0 8px;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:var(--font-sm)}
+.ai-header-actions>button:hover:not(:disabled),.writing-menu-wrap>button:hover:not(:disabled){color:#5d574f;background:#ebe7df}
+.ai-header-actions>button:disabled,.writing-menu-wrap>button:disabled{opacity:.45;cursor:default}
+.ai-header-actions>button.armed{color:#a64b43;background:#f7eae7}
+.writing-menu-wrap{position:relative}
+.writing-menu-popup{position:absolute;z-index:30;top:calc(100% + 6px);right:0;display:grid;width:180px;gap:2px;padding:6px;border:1px solid #ded8ce;border-radius:10px;background:#fffefa;box-shadow:0 12px 32px rgb(46 40 31 / 18%)}
+.writing-menu-popup button{display:block;height:29px;padding:0 9px;border:0;border-radius:7px;color:#5d574f;background:transparent;cursor:pointer;font-size:var(--font-sm);text-align:left;white-space:nowrap}
+.writing-menu-popup button:hover{color:var(--accent-strong);background:var(--accent-softest)}
 .ai-actions button.featured{grid-column:1/-1;color:#fff;border-color:#506c58;background:#506c58}
 .ai-composer button.stop-button{background:#a34f47;font-size:var(--font-xs)}
 .message-mermaid{overflow-x:auto;margin:.6em 0;padding:10px;border:1px solid #e6e1d7;border-radius:8px;background:#fff;text-align:center}.message-mermaid svg{max-width:100%;height:auto}

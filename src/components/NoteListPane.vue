@@ -22,9 +22,11 @@ const emit = defineEmits<{
   setMode: [mode: NoteListMode];
   toggleBranch: [id: string];
   context: [id: string, event: MouseEvent];
+  menuAction: [action: string, id: string];
 }>();
 
 const createMenuOpen = ref(false);
+const rowMenuId = ref<string | null>(null);
 const searchExpanded = ref(Boolean(props.searchQuery));
 const searchInput = ref<HTMLInputElement | null>(null);
 const visibleNotes = computed(() => notesMatchingQuery(props.notes, props.searchQuery));
@@ -43,6 +45,12 @@ onBeforeUnmount(() => window.removeEventListener("click", closeCreateMenu));
 
 function closeCreateMenu(): void {
   createMenuOpen.value = false;
+  rowMenuId.value = null;
+}
+
+function rowMenuAction(action: string, id: string): void {
+  rowMenuId.value = null;
+  emit("menuAction", action, id);
 }
 
 function createRootNote(): void {
@@ -194,6 +202,25 @@ defineExpose({ focusSearch });
             </div>
           </template>
         </button>
+
+        <div class="row-menu-wrap" @click.stop>
+          <button
+            class="row-menu-button"
+            type="button"
+            title="文档操作"
+            aria-label="文档操作"
+            aria-haspopup="menu"
+            :aria-expanded="rowMenuId === row.note.id"
+            @click="rowMenuId = rowMenuId === row.note.id ? null : row.note.id"
+          >•••</button>
+          <div v-if="rowMenuId === row.note.id" class="row-menu-popup" role="menu">
+            <button type="button" role="menuitem" @click="rowMenuAction('aiMetadata', row.note.id)">AI 整理标题和标签</button>
+            <button type="button" role="menuitem" @click="rowMenuAction('pin', row.note.id)">{{ row.note.pinned ? '取消置顶' : '置顶笔记' }}</button>
+            <button type="button" role="menuitem" @click="rowMenuAction('export', row.note.id)">导出 Markdown</button>
+            <span></span>
+            <button class="danger" type="button" role="menuitem" @click="rowMenuAction('trash', row.note.id)">删除笔记</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="!loading && rows.length === 0" class="document-list-message">
@@ -458,18 +485,25 @@ defineExpose({ focusSearch });
   box-shadow: inset 2px 0 var(--accent), 0 2px 8px rgb(59 50 37 / 5%);
 }
 
+/* 折叠按钮与标题行同高：卡片模式下与标题首行对齐，仅标题模式下随行居中。 */
 .branch-toggle,
 .branch-spacer {
   display: grid;
   width: 19px;
-  height: 30px;
+  height: 21px;
   flex: 0 0 auto;
   place-items: center;
   padding: 0;
   border: 0;
   color: #8b857b;
   background: transparent;
-  font-size: 16px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.mode-cards .branch-toggle,
+.mode-cards .branch-spacer {
+  margin-top: 8px;
 }
 
 .branch-toggle {
@@ -482,7 +516,85 @@ defineExpose({ focusSearch });
 
 .branch-spacer {
   color: #b7b0a5;
-  font-size:var(--font-sm);
+  font-size:var(--font-xs);
+}
+
+/* 行内「•••」菜单：悬停文档行时出现，平时隐藏。 */
+.row-menu-wrap {
+  position: absolute;
+  z-index: 26;
+  top: 5px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.document-row:hover .row-menu-wrap,
+.row-menu-wrap:focus-within {
+  opacity: 1;
+}
+
+.row-menu-button {
+  display: grid;
+  height: 21px;
+  min-width: 23px;
+  place-items: center;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  color: #8b857b;
+  background: rgb(255 254 250 / 92%);
+  box-shadow: 0 1px 5px rgb(59 50 37 / 16%);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  letter-spacing: 1px;
+}
+
+.row-menu-button:hover,
+.row-menu-wrap.menu-open .row-menu-button {
+  color: var(--accent-strong);
+}
+
+.row-menu-popup {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  width: 172px;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #ded8ce;
+  border-radius: 10px;
+  background: #fffefa;
+  box-shadow: 0 12px 32px rgb(46 40 31 / 18%);
+}
+
+.row-menu-popup button {
+  height: 29px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #5d574f;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  text-align: left;
+}
+
+.row-menu-popup button:hover {
+  color: var(--accent-strong);
+  background: var(--accent-softest);
+}
+
+.row-menu-popup button.danger:hover {
+  color: #a64b43;
+  background: #f7eae7;
+}
+
+.row-menu-popup > span {
+  height: 1px;
+  margin: 3px 6px;
+  background: #ece8df;
 }
 
 .document-select {
@@ -566,7 +678,7 @@ defineExpose({ focusSearch });
 
 .mode-outline .document-title-line strong {
   font-size:var(--font-sm);
-  font-weight: 560;
+  font-weight: 600;
 }
 
 .document-list-message {

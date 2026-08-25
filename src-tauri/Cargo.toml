@@ -1,6 +1,6 @@
 [package]
 name = "orange-run-notes"
-version = "0.14.0"
+version = "0.14.1"
 description = "A quiet local-first notes app"
 authors = ["Peter"]
 edition = "2021"
@@ -27,6 +27,7 @@ sha2 = "0.10"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
+tokio = { version = "1", features = ["sync", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"

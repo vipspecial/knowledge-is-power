@@ -5,13 +5,25 @@ use crate::{
 use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use tauri::ipc::Channel;
+use tokio::sync::watch;
 
 const MAX_MODEL_LIST_BYTES: usize = 2 * 1024 * 1024;
 
-/// 同一时刻只允许一个流式请求，用全局标志即可表达“停止当前生成”。
-static STREAM_ABORTED: AtomicBool = AtomicBool::new(false);
+/// 同一时刻只允许一个流式请求，用全局 watch 通道表达“停止当前生成”。
+/// watch 保留最新值，既能在数据块到达时轮询标志，也能用 select 立即唤醒
+/// 处于等待中的读取（慢响应、非流式响应也能及时停止）。
+static ABORT_TX: LazyLock<watch::Sender<bool>> =
+    LazyLock::new(|| watch::channel(false).0);
+
+fn abort_receiver() -> watch::Receiver<bool> {
+    ABORT_TX.subscribe()
+}
+
+fn is_aborted(receiver: &mut watch::Receiver<bool>) -> bool {
+    receiver.borrow_and_update().clone()
+}
 
 fn endpoint(base_url: &str, protocol: &str) -> String {
     let base = base_url.trim().trim_end_matches('/');
@@ -309,7 +321,11 @@ pub(crate) async fn stream_ai(
     if !settings.enabled {
         return Err("请先在设置中启用并配置 AI".to_string());
     }
-    STREAM_ABORTED.store(false, Ordering::SeqCst);
+    // 新请求开始时先复位中止标志、再订阅：watch 的 send 不比较值相等，
+    // 若先订阅后复位，复位本身会成为“已变化”，让首个 changed() 立即返回、
+    // 流式请求刚启动就被误判为中止。
+    let _ = ABORT_TX.send(false);
+    let mut abort_rx = abort_receiver();
     validate_ai_settings(&settings)?;
     apply_request_model(&mut settings, &request.model)?;
     let (system, user) = build_prompts(&request, settings.max_context_chars);
@@ -339,10 +355,21 @@ pub(crate) async fn stream_ai(
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.contains("text/event-stream"));
     if !is_event_stream {
-        let body = response
-            .text()
-            .await
-            .map_err(|error| format!("无法读取 AI 服务响应：{error}"))?;
+        if is_aborted(&mut abort_rx) {
+            let _ = on_event.send(AiStreamEvent::Aborted);
+            return Ok(());
+        }
+        // 非流式响应也要能被“停止”打断：select 同时监听中止信号与响应体读取。
+        let body = tokio::select! {
+            changed = abort_rx.changed() => {
+                let _ = changed;
+                let _ = on_event.send(AiStreamEvent::Aborted);
+                return Ok(());
+            }
+            result = response.text() => {
+                result.map_err(|error| format!("无法读取 AI 服务响应：{error}"))?
+            }
+        };
         let value: Value = serde_json::from_str(&body)
             .map_err(|error| format!("AI 服务响应不是有效 JSON：{error}"))?;
         if let Some(message) = extract_error(&value) {
@@ -385,11 +412,19 @@ pub(crate) async fn stream_ai(
 
     let mut stream = response.bytes_stream();
     let mut pending = Vec::<u8>::new();
-    while let Some(chunk) = stream.next().await {
-        if STREAM_ABORTED.load(Ordering::SeqCst) {
-            let _ = on_event.send(AiStreamEvent::Aborted);
-            return Ok(());
-        }
+    loop {
+        // 中止信号与下一个数据块谁先到都立即处理：等待数据期间点“停止”也能生效。
+        let chunk = tokio::select! {
+            changed = abort_rx.changed() => {
+                let _ = changed;
+                let _ = on_event.send(AiStreamEvent::Aborted);
+                return Ok(());
+            }
+            chunk = stream.next() => match chunk {
+                Some(chunk) => chunk,
+                None => break,
+            },
+        };
         let chunk = chunk.map_err(|error| format!("读取 AI 流式响应失败：{error}"))?;
         pending.extend_from_slice(&chunk);
         while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
@@ -411,7 +446,7 @@ pub(crate) async fn stream_ai(
 
 #[tauri::command]
 pub(crate) fn abort_ai_stream() {
-    STREAM_ABORTED.store(true, Ordering::SeqCst);
+    let _ = ABORT_TX.send(true);
 }
 
 #[tauri::command]
@@ -536,11 +571,19 @@ mod tests {
 
     #[test]
     fn abort_flag_round_trips() {
-        STREAM_ABORTED.store(false, Ordering::SeqCst);
-        assert!(!STREAM_ABORTED.load(Ordering::SeqCst));
+        // 测试共用全局通道，两个用例合并执行避免并行竞态。
+        // 复位后订阅：watch 的 send 不比较值相等，若先订阅后复位，复位本身
+        // 会成为“已变化”，让首个 changed() 立即返回、流式请求刚启动就被误判中止。
+        let _ = ABORT_TX.send(false);
+        let fresh_receiver = abort_receiver();
+        assert!(!fresh_receiver.has_changed().unwrap());
+
+        let mut receiver = abort_receiver();
+        assert!(!is_aborted(&mut receiver));
         abort_ai_stream();
-        assert!(STREAM_ABORTED.load(Ordering::SeqCst));
-        STREAM_ABORTED.store(false, Ordering::SeqCst);
+        assert!(is_aborted(&mut receiver));
+        assert!(fresh_receiver.has_changed().unwrap());
+        let _ = ABORT_TX.send(false);
     }
 
     #[test]

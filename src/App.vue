@@ -44,6 +44,8 @@ const searchQuery = ref("");
 const isLoading = ref(true);
 const saveState = ref<SaveState>("idle");
 const errorMessage = ref("");
+/** 区分「加载失败」与「保存失败」，避免把读取错误误报成保存错误。 */
+const errorScope = ref<"load" | "save">("save");
 const toastMessage = ref("");
 const showDeleteDialog = ref(false);
 const trashDeleteTarget = ref<"all" | string | null>(null);
@@ -74,8 +76,6 @@ const libraryRailCollapsed = ref(readBrowserStorage(browserStorageKeys.libraryRa
 const activeNavigation = ref<"library" | "trash">("library");
 const noteListMode = ref<NoteListMode>(readBrowserStorage(browserStorageKeys.noteListMode) === "outline" ? "outline" : "cards");
 const collapsedNoteIds = ref<Set<string>>(new Set());
-const documentMenuOpen = ref(false);
-const editorAiMenuOpen = ref(false);
 const selectedText = ref("");
 const selectionRange = ref({ start: 0, end: 0 });
 const knowledgeBaseDialog = ref<"create" | "rename" | "delete" | null>(null);
@@ -172,8 +172,6 @@ function toggleNoteBranch(id: string): void {
 }
 
 function closeMenus(): void {
-  documentMenuOpen.value = false;
-  editorAiMenuOpen.value = false;
   contextMenu.value = null;
 }
 
@@ -206,15 +204,6 @@ function handleAppContextMenu(event: MouseEvent): void {
 
   closeMenus();
   if (!editable) event.preventDefault();
-}
-
-function toggleMenu(menu: "document" | "editorAi"): void {
-  const next = menu === "document"
-      ? !documentMenuOpen.value
-      : !editorAiMenuOpen.value;
-  closeMenus();
-  if (menu === "document") documentMenuOpen.value = next;
-  else editorAiMenuOpen.value = next;
 }
 
 function readStoredNumber(key: string, fallback: number): number {
@@ -616,6 +605,25 @@ function handleContextMenuAction(action: string): void {
   else if (action === "trash") requestDelete();
 }
 
+/** 文档列表行内「•••」菜单：先选中目标文档，再复用既有操作。 */
+function handleNoteMenuAction(action: string, id: string): void {
+  selectNote(id);
+  if (action === "aiMetadata") void generateMetadata("metadata");
+  else if (action === "pin") togglePin();
+  else if (action === "export") void exportMarkdown();
+  else if (action === "trash") requestDelete();
+}
+
+/** AI 面板里的「写作」菜单：复用原正文工具栏的全文操作。 */
+function handlePanelWriting(operation: string): void {
+  if (operation === "writing") openAiWriting();
+  else if (operation === "continue") runContextualAi("continue", "续写当前文章", "append");
+  else if (operation === "proofread") runContextualAi("proofread", "校对当前文章", "document");
+  else if (operation === "outline") runContextualAi("outline", "生成文章大纲", "append");
+  else if (operation === "summarize") runContextualAi("summarize", "总结当前文章", "append");
+  else if (operation === "todos") runContextualAi("todos", "提取行动项", "append");
+}
+
 function confirmPermanentDelete(): void {
   if (!trashDeleteTarget.value) return;
   if (trashDeleteTarget.value === "all") {
@@ -903,9 +911,15 @@ async function exportMarkdown(): Promise<void> {
   }
 }
 
+function showSaveError(): void {
+  if (!errorMessage.value) return;
+  showToast(`${errorScope.value === "load" ? "加载失败" : "保存失败"}：${errorMessage.value}`);
+}
+
 async function persistNotes(): Promise<void> {
   saveState.value = "saving";
   errorMessage.value = "";
+  errorScope.value = "save";
   try {
     await saveStore({
       knowledgeBases: knowledgeBases.value,
@@ -1004,17 +1018,22 @@ onMounted(async () => {
     knowledgeBases.value = store.knowledgeBases;
     notes.value = store.notes;
 
+    // 仅当加载阶段确实修正了数据时才回写磁盘，避免每次启动都触发保存。
+    let storeDirty = false;
     if (knowledgeBases.value.length === 0) {
       knowledgeBases.value = [makeKnowledgeBase("我的知识库")];
+      storeDirty = true;
     }
     const defaultBaseId = knowledgeBases.value[0].id;
     selectedKnowledgeBaseId.value = defaultBaseId;
     for (const note of notes.value) {
       if (!knowledgeBases.value.some((base) => base.id === note.knowledgeBaseId)) {
         note.knowledgeBaseId = defaultBaseId;
+        storeDirty = true;
       }
       const parent = notes.value.find((candidate) => candidate.id === note.parentId);
       if (!parent || parent.id === note.id || parent.knowledgeBaseId !== note.knowledgeBaseId) {
+        if (note.parentId !== null) storeDirty = true;
         note.parentId = null;
       }
     }
@@ -1023,16 +1042,18 @@ onMounted(async () => {
       notes.value = [
         makeNote(
           "欢迎使用",
-          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 正文工具栏的 AI 菜单提供写作、续写、校对和提炼\n- 每篇文档拥有独立 AI 对话，并保存在本机\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + K` 全局搜索，`⌘/Ctrl + F` 搜索当前知识库\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
+          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 每篇文档拥有独立 AI 对话，并保存在本机\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + K` 全局搜索，`⌘/Ctrl + F` 搜索当前知识库\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
         ),
       ];
       notes.value[0].tags = ["开始", "AI"];
+      storeDirty = true;
     }
     selectedId.value = sortedNotes.value[0]?.id ?? null;
     hydrated = true;
-    await persistNotes();
+    if (storeDirty) await persistNotes();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorScope.value = "load";
     saveState.value = "error";
   } finally {
     isLoading.value = false;
@@ -1092,6 +1113,7 @@ onBeforeUnmount(() => {
       :notes="notes"
       :selected-id="selectedKnowledgeBaseId"
       :save-state="saveState"
+      :save-error-label="errorScope === 'load' ? '加载失败' : '保存失败'"
       :trash-active="activeNavigation === 'trash'"
       :trash-count="trashedNotes.length"
       :shortcut-prefix="shortcutPrefix"
@@ -1105,6 +1127,7 @@ onBeforeUnmount(() => {
       @open-global-search="openGlobalSearch"
       @context="openKnowledgeBaseContextMenu"
       @open-settings="openSettings"
+      @show-save-error="showSaveError"
     />
 
     <button
@@ -1145,6 +1168,7 @@ onBeforeUnmount(() => {
       @set-mode="setNoteListMode"
       @toggle-branch="toggleNoteBranch"
       @context="openNoteContextMenu"
+      @menu-action="handleNoteMenuAction"
     />
 
     <TrashPane
@@ -1188,14 +1212,9 @@ onBeforeUnmount(() => {
     >›</button>
 
     <section v-if="selectedNote && activeNavigation === 'library'" class="editor-pane">
-      <header class="editor-toolbar">
-        <div class="editor-meta">
-          <span>{{ formatFullDate(selectedNote.updatedAt) }}</span>
-          <span class="divider"></span>
-          <span>{{ characterCount }} 字</span>
-        </div>
-
-        <div class="editor-toolbar-actions">
+      <article class="editor">
+        <div class="title-row">
+          <input ref="titleInput" v-model="selectedNote.title" class="title-input" type="text" maxlength="200" placeholder="无标题笔记" aria-label="笔记标题" @input="markEdited" />
           <button
             class="ai-toggle-button"
             :class="{ active: aiPanelOpen }"
@@ -1205,31 +1224,13 @@ onBeforeUnmount(() => {
           >
             <span>✦</span>AI
           </button>
-          <div class="popup-menu-wrap" @click.stop>
-            <button class="icon-button" type="button" title="更多文档操作" aria-label="更多文档操作" @click="toggleMenu('document')">•••</button>
-            <div v-if="documentMenuOpen" class="popup-menu document-popup" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                :disabled="metadataAiBusy !== null"
-                @click="generateMetadata('metadata'); closeMenus()"
-              >{{ metadataAiBusy === 'metadata' ? 'AI 整理中…' : 'AI 整理标题和标签' }}</button>
-              <button type="button" role="menuitem" @click="togglePin(); closeMenus()">{{ selectedNote.pinned ? '取消置顶' : '置顶笔记' }}</button>
-              <button type="button" role="menuitem" @click="exportMarkdown(); closeMenus()">导出 Markdown</button>
-              <span></span>
-              <button class="danger" type="button" role="menuitem" @click="requestDelete(); closeMenus()">删除笔记</button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <article class="editor">
-        <div class="title-row">
-          <input ref="titleInput" v-model="selectedNote.title" class="title-input" type="text" maxlength="200" placeholder="无标题笔记" aria-label="笔记标题" @input="markEdited" />
         </div>
         <div class="tag-editor">
           <span>标签</span>
           <input :value="selectedNote.tags.join(', ')" type="text" maxlength="160" placeholder="工作, 灵感（用逗号分隔）" @change="updateTags" />
+          <span class="editor-meta" :title="`更新于 ${formatFullDate(selectedNote.updatedAt)}`">
+            {{ formatFullDate(selectedNote.updatedAt) }} · {{ characterCount }} 字
+          </span>
         </div>
 
         <RichTextEditor
@@ -1239,27 +1240,10 @@ onBeforeUnmount(() => {
           @change="markEdited"
           @selection-change="updateSelection"
           @selection-ai="handleSelectionAi"
-        >
-          <template #actions>
-            <div class="markdown-ai-tools">
-              <div class="popup-menu-wrap" @click.stop>
-                <button type="button" title="当前文章 AI 工具" @click="toggleMenu('editorAi')"><span>✦</span>AI</button>
-                <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">
-                  <button type="button" role="menuitem" @click="openAiWriting(); closeMenus()">AI 写作</button>
-                  <span></span>
-                  <button type="button" role="menuitem" @click="runContextualAi('continue', '续写当前文章', 'append'); closeMenus()">续写正文</button>
-                  <button type="button" role="menuitem" @click="runContextualAi('proofread', '校对当前文章', 'document'); closeMenus()">全文校对</button>
-                  <button type="button" role="menuitem" @click="runContextualAi('outline', '生成文章大纲', 'append'); closeMenus()">生成大纲</button>
-                  <button type="button" role="menuitem" @click="runContextualAi('summarize', '总结当前文章', 'append'); closeMenus()">生成摘要</button>
-                  <button type="button" role="menuitem" @click="runContextualAi('todos', '提取行动项', 'append'); closeMenus()">提取行动项</button>
-                </div>
-              </div>
-            </div>
-          </template>
-        </RichTextEditor>
+        />
       </article>
 
-      <div v-if="errorMessage" class="error-banner" role="alert">保存失败：{{ errorMessage }}</div>
+      <div v-if="errorMessage" class="error-banner" role="alert">{{ errorScope === 'load' ? '加载失败' : '保存失败' }}：{{ errorMessage }}</div>
     </section>
 
     <section v-else class="empty-editor">
@@ -1299,6 +1283,7 @@ onBeforeUnmount(() => {
       @close="aiPanelOpen = false"
       @open-settings="openSettings('ai')"
       @apply="applyAiPanelResult"
+      @writing="handlePanelWriting"
     />
 
     <AiWritingDialog

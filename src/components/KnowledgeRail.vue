@@ -6,6 +6,8 @@ const props = defineProps<{
   notes: Note[];
   selectedId: string | null;
   saveState: SaveState;
+  /** 失败时的具体原因（加载或保存），由 App 层提供。 */
+  saveErrorLabel: string;
   trashActive: boolean;
   trashCount: number;
   shortcutPrefix: string;
@@ -22,6 +24,7 @@ const emit = defineEmits<{
   openGlobalSearch: [];
   context: [id: string, event: MouseEvent];
   openSettings: [tab: "general" | "ai" | "storage" | "mcp" | "about"];
+  showSaveError: [];
 }>();
 
 function noteCount(id: string): number {
@@ -78,9 +81,19 @@ function noteCount(id: string): number {
         <span>♲</span>回收站<small>{{ trashCount }}</small>
       </button>
       <button type="button" @click="emit('openSettings', 'general')"><span>⚙</span>设置</button>
-      <div class="rail-save-state" :class="saveState" :title="saveState === 'saving' ? '保存中…' : saveState === 'error' ? '保存失败' : '已保存到本机'">
+      <button
+        v-if="saveState === 'error'"
+        class="rail-save-state error clickable"
+        type="button"
+        title="点击查看失败原因"
+        @click="emit('showSaveError')"
+      >
+        <i class="error"></i>
+        <span>{{ saveErrorLabel }}</span>
+      </button>
+      <div v-else class="rail-save-state" :class="saveState" :title="saveState === 'saving' ? '保存中…' : '已保存到本机'">
         <i :class="saveState"></i>
-        <span v-if="saveState !== 'idle'">{{ saveState === 'saving' ? '保存中…' : '保存失败' }}</span>
+        <span v-if="saveState === 'saving'">保存中…</span>
       </div>
     </footer>
   </aside>
@@ -221,7 +234,8 @@ function noteCount(id: string): number {
   background: var(--accent-softest);
 }
 
-/* 收起按钮与文档栏的 resizer-collapse-button 位置统一：面板边界、垂直居中的胶囊。 */
+/* 收起按钮与文档栏的 resizer-collapse-button 位置统一：面板边界、垂直居中的胶囊。
+   平时隐藏，悬停知识库栏或键盘聚焦时才出现。 */
 .rail-collapse-button {
   position: absolute;
   z-index: 12;
@@ -242,6 +256,12 @@ function noteCount(id: string): number {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.library-rail:hover .rail-collapse-button,
+.rail-collapse-button:focus-visible {
   opacity: .72;
 }
 
@@ -417,6 +437,19 @@ function noteCount(id: string): number {
 
 .rail-save-state i.error {
   background: #bd5d54;
+}
+
+/* 失败状态是按钮：点击弹出具体错误，悬停有反馈。 */
+button.rail-save-state {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+button.rail-save-state:hover {
+  color: #a64b43;
 }
 
 .rail-global-search:focus-visible,
