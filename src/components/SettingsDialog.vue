@@ -266,7 +266,7 @@ async function removeApiKey(): Promise<void> {
     apiKey.value = "";
     emit("keyCleared");
     testState.value = "idle";
-    testMessage.value = "已从系统安全凭据中移除 API Key";
+    testMessage.value = "已移除本地加密存储的 API Key";
   } catch (error) {
     testState.value = "error";
     testMessage.value = `移除失败：${String(error)}`;
@@ -514,8 +514,8 @@ onMounted(async () => {
                   />
                   <button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button>
                 </div>
-                <small>密钥由系统安全凭据存储保护，不会写入设置文件或文档目录；首次保存或读取时可能要求确认系统凭据访问。</small>
-                <small v-if="credentialError" class="provider-key-warning">安全凭据不可用：{{ credentialError }}</small>
+                <small>密钥经本机绑定的 AES-256-GCM 加密后存储在应用数据目录，不会明文写入设置文件或文档目录，也不会请求系统钥匙串权限。</small>
+                <small v-if="credentialError" class="provider-key-warning">密钥存储不可用：{{ credentialError }}</small>
                 <small v-if="credentialScopeChanged && hasApiKey" class="provider-key-warning">服务商或 API 域名已切换，请输入新 Key；无 Key 服务请先移除旧密钥。</small>
                 <button v-if="hasApiKey" class="clear-key" type="button" @click="removeApiKey">移除已保存密钥</button>
               </label>

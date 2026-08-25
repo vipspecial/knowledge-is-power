@@ -42,9 +42,9 @@
 
 ## 设置与密钥
 
-- `settings.json` 位于 Tauri 应用数据目录；AI Key 使用系统安全凭据存储：macOS Keychain、Windows Credential Manager、Linux Secret Service，不进入设置 JSON 或文档目录。
-- 旧 `ai-api-key` 明文文件不得读取或迁移，升级后清理并要求用户在系统安全凭据中重新配置。
-- 系统安全凭据首次保存或读取可能触发操作系统授权提示，设置页必须明确说明；浏览器调试模式不持久化 API Key。
+- `settings.json` 位于 Tauri 应用数据目录；AI Key 使用 AES-256-GCM 加密文件存储（`credentials.bin`）：加密密钥由应用标识 + 本机硬件标识（machine-uid）经 SHA-256 派生、不落盘，凭据文件绑定本机、复制到其他设备无法解密；不进入设置 JSON 或文档目录，也不依赖系统钥匙串。
+- 旧 `ai-api-key` 明文文件不得读取或迁移，升级后清理并要求用户重新配置。
+- 凭据读写为原子写（临时文件 + rename）；浏览器调试模式不持久化 API Key。
 - 前端只接收 `hasApiKey` 和安全存储状态，不得把已保存的 Key 回传到界面。
 - Tauri identifier 与新内部命名统一为 `com.peter.orange-run-notes` / `orange-run-notes`；旧 `com.peter.mojian` 目录和 `mojian` 格式字符串只能存在于兼容迁移常量中。
 - 永远不要记录请求 Authorization、完整 Key、私钥内容或包含用户文档的调试转储。

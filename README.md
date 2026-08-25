@@ -48,7 +48,7 @@
 | HTML 净化 | DOMPurify | AI 与 Markdown 生成的 HTML 必须净化后渲染，防止提示注入引入恶意标记；事实上的标准方案。 |
 | 图表渲染 | Mermaid（懒加载） | `mermaid` 代码块渲染为图示，源码即 Markdown 不引入私有格式；securityLevel=strict 并经 DOMPurify 净化，动态导入避免拖慢首屏。 |
 | AI 请求层 | Rust（reqwest） | API Key 只存在 Rust 侧，不进 WebView；HTTP 流式（SSE）、超时和错误压缩都在后端收敛，前端经 Tauri Channel 只收结构化事件。 |
-| 密钥存储 | 系统 keyring（macOS 钥匙串 / Windows 凭据管理器 / Linux Secret Service） | API Key 属于敏感凭据，交给操作系统级加密存储，不写设置文件或文档目录。 |
+| 密钥存储 | AES-256-GCM 加密文件（密钥由应用标识 + 本机硬件标识派生） | API Key 加密后存于应用数据目录，绑定本机、复制到其他设备无法解密；不依赖系统钥匙串，跨平台行为一致。 |
 | AI 协议 | Chat Completions / OpenAI Responses / Anthropic Messages | 覆盖国内外主流服务与本地模型（Ollama 等 OpenAI-compatible 服务），预设之外仍可自定义地址与协议。 |
 | 序列化 | serde / serde_json | Rust 侧统一的 JSON 边界，与前端 TypeScript 类型一一对应，字段变更在编译期暴露。 |
 | MCP 实现 | 复用应用可执行文件（stdio） | 不单独发布 npm 包，随应用升级；只读授权文件 + 启动参数校验，安全边界清晰。 |
@@ -100,7 +100,7 @@ AI 配置内置国内、国外主流服务预设，也支持 OpenAI-compatible�
 - 文档保存在用户指定目录，可自行备份或同步。
 - AI 默认关闭，仅在用户主动调用时发送当前文档或选区。
 - 不同文档的 AI 会话和上下文相互隔离。
-- API Key 由系统安全凭据存储保护，不写入设置文件、项目代码或文档目录。
+- API Key 经本机绑定的 AES-256-GCM 加密后存储在应用数据目录，不写入设置文件、项目代码或文档目录。
 
 ## 常用操作
 

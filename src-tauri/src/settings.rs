@@ -1,4 +1,5 @@
 use crate::models::{AiSettings, AppSettings, SettingsView};
+use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -7,7 +8,8 @@ use tauri::Manager;
 
 const APP_IDENTIFIER: &str = "com.peter.orange-run-notes";
 const LEGACY_APP_IDENTIFIER: &str = "com.peter.mojian";
-const CREDENTIAL_ACCOUNT: &str = "ai-api-key";
+const CREDENTIAL_FILE: &str = "credentials.bin";
+const CREDENTIAL_NONCE_LENGTH: usize = 12;
 const LEGACY_API_KEY_FILE: &str = "ai-api-key";
 const LEGACY_API_KEY_TEMP_FILE: &str = "ai-api-key.tmp";
 const LEGACY_MCP_ACCESS_FILE: &str = "mcp-access.json";
@@ -18,34 +20,83 @@ trait CredentialStore {
     fn delete(&self) -> Result<(), String>;
 }
 
-struct SystemCredentialStore;
+struct EncryptedFileStore {
+    path: PathBuf,
+}
 
-impl SystemCredentialStore {
-    fn entry(&self) -> Result<keyring::Entry, String> {
-        keyring::Entry::new(APP_IDENTIFIER, CREDENTIAL_ACCOUNT)
-            .map_err(|error| format!("无法连接系统安全凭据存储：{error}"))
+impl EncryptedFileStore {
+    fn new(app: &tauri::AppHandle) -> Result<Self, String> {
+        Ok(Self {
+            path: app_data_dir(app)?.join(CREDENTIAL_FILE),
+        })
+    }
+
+    // 加密密钥由应用标识与本机硬件标识派生，不落盘；
+    // 因此凭据文件复制到其他设备后无法解密。
+    fn derive_key() -> Result<[u8; 32], String> {
+        use sha2::{Digest, Sha256};
+
+        let machine_id =
+            machine_uid::get().map_err(|error| format!("无法获取本机标识：{error}"))?;
+        let digest = Sha256::new()
+            .chain_update(APP_IDENTIFIER.as_bytes())
+            .chain_update(machine_id.as_bytes())
+            .finalize();
+        Ok(digest.into())
     }
 }
 
-impl CredentialStore for SystemCredentialStore {
+impl CredentialStore for EncryptedFileStore {
     fn get(&self) -> Result<Option<String>, String> {
-        match self.entry()?.get_password() {
-            Ok(value) => Ok(Some(value)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(format!("无法读取系统安全凭据：{error}")),
+        let data = match fs::read(&self.path) {
+            Ok(data) => data,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("无法读取加密密钥文件：{error}")),
+        };
+        if data.len() <= CREDENTIAL_NONCE_LENGTH {
+            return Err("加密密钥文件已损坏".to_string());
         }
+        let (nonce, ciphertext) = data.split_at(CREDENTIAL_NONCE_LENGTH);
+        let key = Self::derive_key()?;
+        let cipher =
+            Aes256Gcm::new_from_slice(&key).map_err(|_| "无法初始化密钥加密".to_string())?;
+        let plaintext = cipher
+            .decrypt(Nonce::from_slice(nonce), ciphertext)
+            .map_err(|_| "密钥解密失败：文件可能来自其他设备或已损坏".to_string())?;
+        String::from_utf8(plaintext)
+            .map(Some)
+            .map_err(|_| "密钥内容无效".to_string())
     }
 
     fn set(&self, value: &str) -> Result<(), String> {
-        self.entry()?
-            .set_password(value)
-            .map_err(|error| format!("无法保存到系统安全凭据：{error}"))
+        let key = Self::derive_key()?;
+        let cipher =
+            Aes256Gcm::new_from_slice(&key).map_err(|_| "无法初始化密钥加密".to_string())?;
+        let mut nonce = [0u8; CREDENTIAL_NONCE_LENGTH];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce);
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), value.as_bytes())
+            .map_err(|_| "无法加密 API Key".to_string())?;
+        let mut data = nonce.to_vec();
+        data.extend_from_slice(&ciphertext);
+
+        let parent = self.path.parent().ok_or("密钥存储路径无效")?;
+        fs::create_dir_all(parent).map_err(|error| format!("无法创建密钥存储目录：{error}"))?;
+        let temporary = parent.join(format!("{CREDENTIAL_FILE}.tmp"));
+        fs::write(&temporary, data).map_err(|error| format!("无法写入加密密钥文件：{error}"))?;
+        if self.path.exists() {
+            fs::remove_file(&self.path)
+                .map_err(|error| format!("无法更新加密密钥文件：{error}"))?;
+        }
+        fs::rename(&temporary, &self.path)
+            .map_err(|error| format!("无法完成密钥保存：{error}"))
     }
 
     fn delete(&self) -> Result<(), String> {
-        match self.entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!("无法从系统安全凭据中移除密钥：{error}")),
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("无法删除加密密钥文件：{error}")),
         }
     }
 }
@@ -158,7 +209,7 @@ fn remove_legacy_app_dir_if_empty(app: &tauri::AppHandle) -> Result<(), String> 
 fn save_secure_api_key(store: &impl CredentialStore, value: &str) -> Result<(), String> {
     store.set(value)?;
     if store.get()?.as_deref() != Some(value) {
-        return Err("系统安全凭据校验失败，API Key 未保存".to_string());
+        return Err("加密存储校验失败，API Key 未保存".to_string());
     }
     Ok(())
 }
@@ -232,7 +283,7 @@ pub(crate) fn migrate_legacy_app_data(app: &tauri::AppHandle) -> Result<(), Stri
 
 pub(crate) fn get_api_key(app: &tauri::AppHandle) -> Result<Option<String>, String> {
     migrate_legacy_app_data(app)?;
-    SystemCredentialStore.get()
+    EncryptedFileStore::new(app)?.get()
 }
 
 pub(crate) fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> {
@@ -352,7 +403,7 @@ pub(crate) fn save_settings(
     if let Some(api_key) = api_key {
         let api_key = api_key.trim();
         if !api_key.is_empty() {
-            save_secure_api_key(&SystemCredentialStore, api_key)?;
+            save_secure_api_key(&EncryptedFileStore::new(&app)?, api_key)?;
             remove_plaintext_api_keys(&legacy_api_key_paths(&app)?)?;
         }
     }
@@ -366,7 +417,7 @@ pub(crate) fn save_settings(
 
 #[tauri::command]
 pub(crate) fn clear_ai_api_key(app: tauri::AppHandle) -> Result<(), String> {
-    SystemCredentialStore.delete()?;
+    EncryptedFileStore::new(&app)?.delete()?;
     remove_plaintext_api_keys(&legacy_api_key_paths(&app)?)
 }
 
@@ -445,6 +496,25 @@ mod tests {
         save_secure_api_key(&store, "test-secret").expect("save API key");
 
         assert_eq!(store.get().unwrap().as_deref(), Some("test-secret"));
+    }
+
+    #[test]
+    fn encrypts_api_key_at_rest_and_roundtrips() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let store = EncryptedFileStore {
+            path: directory.path().join(CREDENTIAL_FILE),
+        };
+
+        save_secure_api_key(&store, "test-secret").expect("save API key");
+
+        let raw = fs::read(&store.path).expect("read credential file");
+        assert!(raw.len() > CREDENTIAL_NONCE_LENGTH);
+        let raw_text = String::from_utf8_lossy(&raw);
+        assert!(!raw_text.contains("test-secret"));
+        assert_eq!(store.get().unwrap().as_deref(), Some("test-secret"));
+
+        store.delete().expect("delete API key");
+        assert_eq!(store.get().unwrap(), None);
     }
 
     #[test]
