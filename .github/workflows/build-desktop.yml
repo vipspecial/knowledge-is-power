@@ -60,6 +60,7 @@ jobs:
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
             build_args: --target universal-apple-darwin --bundles dmg
             artifact_name: desktop-macos-universal
+            bundle_root: src-tauri/target/universal-apple-darwin/release/bundle
             artifact_path: |
               src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
               src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
@@ -69,6 +70,7 @@ jobs:
             rust_targets: x86_64-pc-windows-msvc
             build_args: --target x86_64-pc-windows-msvc --bundles nsis
             artifact_name: desktop-windows-x64
+            bundle_root: src-tauri/target/x86_64-pc-windows-msvc/release/bundle
             artifact_path: |
               src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
               src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sig
@@ -77,6 +79,7 @@ jobs:
             rust_targets: x86_64-unknown-linux-gnu
             build_args: --target x86_64-unknown-linux-gnu --bundles deb,appimage
             artifact_name: desktop-linux-x64
+            bundle_root: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
             artifact_path: |
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
@@ -129,6 +132,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Normalize bundle file names
+        run: node scripts/rename-release-artifacts.mjs "${{ matrix.bundle_root }}"
+
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
@@ -153,6 +159,9 @@ jobs:
           pattern: desktop-*
           path: release-artifacts
           merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: ls -la release-artifacts
 
       - name: Normalize artifact file names
         run: node scripts/rename-release-artifacts.mjs release-artifacts

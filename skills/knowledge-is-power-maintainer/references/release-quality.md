@@ -47,7 +47,7 @@ git diff --check
 - 手动触发桌面工作流只构建附件，不会在无标签时发布 Release。
 - `.github/workflows/deploy-pages.yml` 在 `website/**` 或工作流自身变更推送到 `main` 后部署宣传页。
 - 应用内自动更新已启用：`createUpdaterArtifacts` 为 `true`，CI 从 GitHub Secrets 读取 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 生成各平台 `.sig` 签名，Release 任务用 `scripts/generate-update-manifest.mjs` 汇总生成 `latest.json` 并随安装包一起发布。
-- 构建产物文件名含中文品牌名，GitHub 上传资产时会剥离非 ASCII 字符导致 `latest.json` 下载链接 404。Release 任务在上传前用 `scripts/rename-release-artifacts.mjs` 统一把产物名中的非 ASCII 段替换为 `orange-run-notes`，`latest.json` 基于重命名后的文件生成；新增平台产物时同样必须走这一步。
+- 构建产物文件名含中文品牌名，存在两个风险：GitHub 上传资产时剥离非 ASCII 字符导致 `latest.json` 下载链接 404；download-artifact 解压含中文文件名的 zip 时文件名损坏导致资产丢失（曾致 Release 只剩 Windows 安装包）。因此产物改名在**各平台构建机本地**进行：build 任务构建后立即用 `scripts/rename-release-artifacts.mjs`（递归）把产物名中的非 ASCII 段替换为 `orange-run-notes`，再上传 artifact；Release 任务里同脚本是兜底。`generate-update-manifest.mjs` 强制校验三平台产物齐全，缺失即报错终止发布。新增平台产物时同样必须走这一步。
 - CI 在打包前通过 `scripts/normalize-tauri-signing-key.mjs` 规范化私钥，兼容原始 minisign 文本、变量赋值包装、换行和缺失的 Base64 补位，再用 `tauri signer sign package.json` 提前校验私钥与密码；全程不得打印私钥内容。
 - 更新公钥内嵌在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`；更换密钥对、更新端点或调整签名方式必须作为独立任务处理并同步端到端验证升级链路，不能只为消除一次 CI 错误而临时改动。
 - Secrets 缺失、私钥解码后结构不完整或密码错误时必须在签名阶段失败；发布前确认 Secrets 与内嵌公钥属于同一密钥对。

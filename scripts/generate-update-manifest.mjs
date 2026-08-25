@@ -24,18 +24,21 @@ function platformEntry(fileName) {
 const platforms = {};
 
 const appTar = files.find((name) => name.endsWith(".app.tar.gz"));
-if (appTar) {
-  // Universal 构建同时覆盖 Intel 与 Apple Silicon。
+if (!appTar) throw new Error("缺少 macOS 产物（*.app.tar.gz）");
+// Universal 构建同时覆盖 Intel 与 Apple Silicon。
+{
   const entry = platformEntry(appTar);
   platforms["darwin-aarch64"] = entry;
   platforms["darwin-x86_64"] = entry;
 }
 
 const setupExe = files.find((name) => name.endsWith("-setup.exe"));
-if (setupExe) platforms["windows-x86_64"] = platformEntry(setupExe);
+if (!setupExe) throw new Error("缺少 Windows 产物（*-setup.exe）");
+platforms["windows-x86_64"] = platformEntry(setupExe);
 
 const appImage = files.find((name) => name.endsWith(".AppImage"));
-if (appImage) platforms["linux-x86_64"] = platformEntry(appImage);
+if (!appImage) throw new Error("缺少 Linux 产物（*.AppImage）");
+platforms["linux-x86_64"] = platformEntry(appImage);
 
 if (Object.keys(platforms).length === 0) {
   throw new Error("release-artifacts 中未找到任何更新产物（.app.tar.gz / -setup.exe / .AppImage）");
