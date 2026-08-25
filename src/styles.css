@@ -7,7 +7,7 @@
   --accent-border: #f0cfb6;
   font-family:
     Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   color: #25231f;
   background: #eeeae1;
   text-rendering: optimizeLegibility;
@@ -82,7 +82,7 @@ button {
   grid-row: 1;
 }
 
-.app-shell.macos-titlebar {
+.app-shell.custom-titlebar {
   padding-top: 32px;
 }
 
@@ -101,6 +101,50 @@ button {
   color: #555048;
   cursor: default;
   user-select: none;
+}
+
+/* Windows / Linux 无系统红绿灯，标题栏右侧提供窗口控制。 */
+.titlebar-controls {
+  display: flex;
+  align-self: stretch;
+  margin-left: auto;
+}
+
+.titlebar-controls button {
+  display: grid;
+  width: 42px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #555048;
+  cursor: default;
+}
+
+.titlebar-controls button:hover {
+  background: #e8e3d9;
+}
+
+.titlebar-controls button:active {
+  background: #ddd7cb;
+}
+
+.titlebar-controls button.close:hover {
+  background: #c7503f;
+  color: #fff;
+}
+
+.titlebar-controls button.close:active {
+  background: #b0432f;
+  color: #fff;
+}
+
+.titlebar-controls svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
 }
 
 .panel-resizer {
@@ -508,7 +552,7 @@ body.panel-resizing {
   color: #f8f3e9;
   background: #343128;
   box-shadow: 0 4px 12px rgb(55 48 35 / 14%);
-  font-family: "Songti SC", STSong, "SimSun", serif;
+  font-family: "Songti SC", STSong, "Noto Serif CJK SC", "SimSun", serif;
   font-size: 21px;
 }
 
@@ -526,7 +570,7 @@ body.panel-resizing {
 }
 
 .brand-row h1 {
-  font-family: "Songti SC", STSong, "SimSun", serif;
+  font-family: "Songti SC", STSong, "Noto Serif CJK SC", "SimSun", serif;
   overflow: hidden;
   font-size: 16px;
   font-weight: 700;
@@ -1081,7 +1125,7 @@ kbd {
   outline: none;
   color: #292720;
   background: transparent;
-  font-family: "Songti SC", STSong, Georgia, "SimSun", serif;
+  font-family: "Songti SC", STSong, Georgia, "Noto Serif CJK SC", "SimSun", serif;
   font-size: clamp(23px, 2.2vw, 30px);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -1248,7 +1292,7 @@ kbd {
 .empty-editor h2 {
   margin: 0;
   color: #4f4b43;
-  font-family: "Songti SC", STSong, "SimSun", serif;
+  font-family: "Songti SC", STSong, "Noto Serif CJK SC", "SimSun", serif;
   font-size: 22px;
 }
 

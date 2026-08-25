@@ -75,8 +75,8 @@ const sidebarWidth = ref(clamp(readStoredNumber(browserStorageKeys.sidebarWidth,
 const aiPanelWidth = ref(clamp(readStoredNumber(browserStorageKeys.aiPanelWidth, 330), 300, 480));
 const metadataAiBusy = ref<"title" | "tags" | null>(null);
 const contextMenu = ref<ContextMenuState | null>(null);
-const isMacOsDesktop =
-  "__TAURI_INTERNALS__" in window && /Macintosh|Mac OS X/.test(navigator.userAgent);
+const isTauriDesktop = "__TAURI_INTERNALS__" in window;
+const isMacOsDesktop = isTauriDesktop && /Macintosh|Mac OS X/.test(navigator.userAgent);
 
 type ResizeTarget = "sidebar" | "ai";
 type ContextMenuKind = "knowledgeBase" | "note";
@@ -457,7 +457,7 @@ function openGlobalSearch(): void {
 }
 
 function startWindowDrag(event: PointerEvent): void {
-  if (event.button !== 0 || !("__TAURI_INTERNALS__" in window)) return;
+  if (event.button !== 0 || !isTauriDesktop) return;
   // The second press belongs to a double-click; do not start another native drag.
   if (event.detail > 1) {
     event.preventDefault();
@@ -470,10 +470,20 @@ function startWindowDrag(event: PointerEvent): void {
 }
 
 function toggleWindowMaximize(event: MouseEvent): void {
-  if (event.button !== 0 || !("__TAURI_INTERNALS__" in window)) return;
+  if (event.button !== 0 || !isTauriDesktop) return;
   event.preventDefault();
+  void windowAction("toggleMaximize");
+}
+
+/** Windows / Linux 无系统标题栏时的窗口控制。 */
+function windowAction(action: "minimize" | "toggleMaximize" | "close"): void {
   void import("@tauri-apps/api/window")
-    .then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize())
+    .then(({ getCurrentWindow }) => {
+      const current = getCurrentWindow();
+      if (action === "minimize") return current.minimize();
+      if (action === "toggleMaximize") return current.toggleMaximize();
+      return current.close();
+    })
     .catch(() => undefined);
 }
 
@@ -1015,20 +1025,32 @@ onBeforeUnmount(() => {
       'sidebar-collapsed': sidebarCollapsed,
       'library-collapsed': libraryRailCollapsed,
       'trash-visible': activeNavigation === 'trash',
-      'macos-titlebar': isMacOsDesktop,
+      'custom-titlebar': isTauriDesktop,
     }"
     :style="layoutStyle"
     @contextmenu="handleAppContextMenu"
     @scroll.capture="contextMenu = null"
   >
     <header
-      v-if="isMacOsDesktop"
+      v-if="isTauriDesktop"
       class="app-titlebar"
       data-tauri-drag-region
       aria-label="窗口标题栏"
       @pointerdown="startWindowDrag"
       @dblclick="toggleWindowMaximize"
-    ></header>
+    >
+      <div v-if="!isMacOsDesktop" class="titlebar-controls" aria-label="窗口控制">
+        <button type="button" title="最小化" aria-label="最小化" @pointerdown.stop @dblclick.stop @click="windowAction('minimize')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+        </button>
+        <button type="button" title="最大化 / 还原" aria-label="最大化 / 还原" @pointerdown.stop @dblclick.stop @click="windowAction('toggleMaximize')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" /></svg>
+        </button>
+        <button type="button" class="close" title="关闭" aria-label="关闭" @pointerdown.stop @dblclick.stop @click="windowAction('close')">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </div>
+    </header>
 
     <KnowledgeRail
       v-if="!libraryRailCollapsed"

@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "拿了桔子跑啊",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 920,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false
+      }
+    ]
+  }
+}
