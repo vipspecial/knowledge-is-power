@@ -43,7 +43,7 @@ git diff --check
 
 ## 当前 CI 与发布状态
 
-- `.github/workflows/build-desktop.yml` 在推送 `v*` 标签时检查并构建：macOS Universal DMG、Windows x64 NSIS EXE、Linux x64 DEB 与 AppImage，然后发布 GitHub Release。
+- `.github/workflows/build-desktop.yml` 在推送 `v*` 标签时检查并构建：macOS Universal DMG、Windows x64 NSIS EXE、Linux x64 DEB 与 AppImage，然后发布 GitHub Release。macOS 必须用 `--bundles app,dmg`：只出 `dmg` 不会生成更新器所需的 `.app.tar.gz` 与 `.sig`（updater 产物由 `app` bundle 派生）。
 - 手动触发桌面工作流只构建附件，不会在无标签时发布 Release。
 - `.github/workflows/deploy-pages.yml` 在 `website/**` 或工作流自身变更推送到 `main` 后部署宣传页。
 - 应用内自动更新已启用：`createUpdaterArtifacts` 为 `true`，CI 从 GitHub Secrets 读取 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 生成各平台 `.sig` 签名，Release 任务用 `scripts/generate-update-manifest.mjs` 汇总生成 `latest.json` 并随安装包一起发布。

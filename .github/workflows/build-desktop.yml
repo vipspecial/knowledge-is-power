@@ -58,7 +58,7 @@ jobs:
           - name: macOS Universal
             os: macos-latest
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            build_args: --target universal-apple-darwin --bundles dmg
+            build_args: --target universal-apple-darwin --bundles app,dmg
             artifact_name: desktop-macos-universal
             bundle_root: src-tauri/target/universal-apple-darwin/release/bundle
             artifact_path: |

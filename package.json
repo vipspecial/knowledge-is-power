@@ -1,7 +1,7 @@
 {
   "name": "orange-run-notes",
   "private": true,
-  "version": "0.12.4",
+  "version": "0.12.5",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:mac": "tauri build --bundles dmg --config src-tauri/tauri.local.conf.json",
+    "build:mac": "tauri build --bundles app,dmg --config src-tauri/tauri.local.conf.json",
     "build:windows": "tauri build --bundles nsis --config src-tauri/tauri.local.conf.json",
     "build:linux": "tauri build --bundles deb,appimage --config src-tauri/tauri.local.conf.json",
     "check:version": "node scripts/check-version.mjs",
