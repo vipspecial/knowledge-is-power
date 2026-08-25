@@ -80,7 +80,8 @@ export type AiOperation =
   | "translate"
   | "todos"
   | "title"
-  | "tags";
+  | "tags"
+  | "metadata";
 
 export type AiContentTarget = "selection" | "append" | "document" | "insert";
 

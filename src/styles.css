@@ -1098,6 +1098,14 @@ kbd {
   gap: 10px;
   color: #999388;
   font-size:var(--font-sm);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+/* 日期与字数是低频信息，悬停工具栏时才显示。 */
+.editor-toolbar:hover .editor-meta,
+.editor-meta:focus-within {
+  opacity: 1;
 }
 
 .divider {
@@ -1122,11 +1130,6 @@ kbd {
 .icon-button:hover {
   color: #a64b43;
   background: #f7eae7;
-}
-
-.icon-button.selected {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
 }
 
 .editor {
@@ -1163,57 +1166,6 @@ kbd {
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
-}
-
-.field-ai-button {
-  display: flex;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  padding: 0 9px;
-  border: 1px solid var(--accent-border);
-  border-radius: 8px;
-  color: var(--accent-strong);
-  background: var(--accent-softest);
-  cursor: pointer;
-  font-size:var(--font-sm);
-  font-weight:600;
-}
-
-.field-ai-button span {
-  color: var(--accent);
-}
-
-.field-ai-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.field-ai-button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.field-ai-button.compact {
-  height: 27px;
-  background: transparent;
-}
-
-.field-ai-button.icon-only {
-  width: 28px;
-  justify-content: center;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-  opacity: 0.68;
-}
-
-.title-row:hover .field-ai-button.icon-only,
-.tag-editor:hover .field-ai-button.icon-only,
-.field-ai-button.icon-only:focus-visible,
-.field-ai-button.icon-only:hover:not(:disabled) {
-  opacity: 1;
 }
 
 .tag-editor {

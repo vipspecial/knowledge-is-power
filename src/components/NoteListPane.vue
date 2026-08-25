@@ -93,9 +93,9 @@ defineExpose({ focusSearch });
         <div
           v-if="!searchExpanded && !searchQuery"
           class="document-pane-title"
-          :aria-label="`当前知识库：${knowledgeBaseName || '文档'}，${notes.length} 篇`"
+          :title="knowledgeBaseName || '文档'"
         >
-          <strong :title="knowledgeBaseName || '文档'">{{ knowledgeBaseName || '文档' }}</strong>
+          <strong>{{ knowledgeBaseName || '文档' }}</strong>
         </div>
         <button
           v-if="!searchExpanded && !searchQuery"
@@ -148,11 +148,11 @@ defineExpose({ focusSearch });
           <div v-if="createMenuOpen" class="document-create-popup" role="menu">
             <button type="button" role="menuitem" @click="createRootNote">
               <span>＋</span>
-              <span><strong>新建文档</strong><small>当前知识库 · {{ shortcutPrefix }}N</small></span>
+              <span>新建文档<kbd>{{ shortcutPrefix }}N</kbd></span>
             </button>
             <button type="button" role="menuitem" :disabled="!selectedId" @click="createChildNote">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v8a3 3 0 0 0 3 3h4M16 11v8M12 15h8"/></svg>
-              <span><strong>新建子文档</strong><small>{{ selectedId ? '创建在当前文档下' : '请先选择一篇文档' }}</small></span>
+              <span>新建子文档</span>
             </button>
           </div>
         </div>
@@ -288,7 +288,7 @@ defineExpose({ focusSearch });
   top: 40px;
   right: 0;
   display: grid;
-  width: 210px;
+  width: 176px;
   gap: 2px;
   padding: 6px;
   border: 1px solid #ded8ce;
@@ -300,14 +300,16 @@ defineExpose({ focusSearch });
 .document-create-popup button {
   display: flex;
   min-width: 0;
+  height: 31px;
   align-items: center;
   gap: 9px;
-  padding: 8px;
+  padding: 0 9px;
   border: 0;
   border-radius: 7px;
   color: #5d574f;
   background: transparent;
   cursor: pointer;
+  font-size:var(--font-sm);
   text-align: left;
 }
 
@@ -336,19 +338,9 @@ defineExpose({ focusSearch });
   stroke-width: 1.8;
 }
 
-.document-create-popup button > span:last-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.document-create-popup strong {
-  font-size:var(--font-sm);
-}
-
-.document-create-popup small {
-  color: #999187;
+.document-create-popup kbd {
+  margin-left: auto;
+  color: #a39d92;
   font-size:var(--font-xs);
 }
 

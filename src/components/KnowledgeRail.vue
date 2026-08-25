@@ -31,6 +31,7 @@ function noteCount(id: string): number {
 
 <template>
   <aside class="library-rail" aria-label="知识库导航">
+    <button class="rail-collapse-button" type="button" title="收起知识库栏" aria-label="收起知识库栏" @click="emit('toggleRail')">‹</button>
     <header class="rail-brand">
       <img src="/logo.svg" alt="" />
       <strong>拿了桔子跑啊</strong>
@@ -44,10 +45,9 @@ function noteCount(id: string): number {
       </button>
 
       <header>
-        <span>全部知识库</span>
+        <span>知识库</span>
         <div class="rail-section-actions">
           <button type="button" title="新建知识库" aria-label="新建知识库" @click="emit('create')">+</button>
-          <button class="rail-collapse-button" type="button" title="收起知识库栏" aria-label="收起知识库栏" @click="emit('toggleRail')">‹</button>
         </div>
       </header>
 
@@ -78,9 +78,9 @@ function noteCount(id: string): number {
         <span>♲</span>回收站<small>{{ trashCount }}</small>
       </button>
       <button type="button" @click="emit('openSettings', 'general')"><span>⚙</span>设置</button>
-      <div class="rail-save-state">
+      <div class="rail-save-state" :class="saveState" :title="saveState === 'saving' ? '保存中…' : saveState === 'error' ? '保存失败' : '已保存到本机'">
         <i :class="saveState"></i>
-        {{ saveState === 'saving' ? '保存中…' : saveState === 'error' ? '保存失败' : '已保存到本机' }}
+        <span v-if="saveState !== 'idle'">{{ saveState === 'saving' ? '保存中…' : '保存失败' }}</span>
       </div>
     </footer>
   </aside>
@@ -88,6 +88,7 @@ function noteCount(id: string): number {
 
 <style scoped>
 .library-rail {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -99,20 +100,20 @@ function noteCount(id: string): number {
 
 .rail-brand {
   display: flex;
-  height: 68px;
-  flex: 0 0 68px;
+  height: 48px;
+  flex: 0 0 48px;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-bottom: 1px solid #ddd8ce;
 }
 
 .rail-brand img {
-  width: 44px;
-  height: 44px;
+  width: 30px;
+  height: 30px;
   flex: 0 0 auto;
-  border-radius: 13px;
-  box-shadow: 0 4px 12px rgb(43 58 47 / 15%);
+  border-radius: 9px;
+  box-shadow: 0 3px 9px rgb(43 58 47 / 15%);
 }
 
 .rail-brand strong {
@@ -220,8 +221,34 @@ function noteCount(id: string): number {
   background: var(--accent-softest);
 }
 
-.rail-library-section > header .rail-collapse-button {
-  font-size: 18px;
+/* 收起按钮与文档栏的 resizer-collapse-button 位置统一：面板边界、垂直居中的胶囊。 */
+.rail-collapse-button {
+  position: absolute;
+  z-index: 12;
+  top: 50%;
+  right: 0;
+  display: grid;
+  width: 18px;
+  height: 30px;
+  place-items: center;
+  transform: translateY(-50%);
+  padding: 0;
+  border: 1px solid #d8d3c9;
+  border-right: 0;
+  border-radius: 7px 0 0 7px;
+  color: #7b766d;
+  background: #fbfaf7;
+  box-shadow: 0 2px 8px rgb(52 47 38 / 8%);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  opacity: .72;
+}
+
+.rail-collapse-button:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+  opacity: 1;
 }
 
 .rail-library-list {
@@ -405,13 +432,13 @@ function noteCount(id: string): number {
 @media (max-width: 980px) {
   .rail-brand {
     gap: 8px;
-    padding: 0 8px;
+    padding: 0 9px;
   }
 
   .rail-brand img {
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
   }
 
   .rail-brand strong {

@@ -68,6 +68,7 @@ fn build_prompts(request: &AiRequest, max_context_chars: usize) -> (String, Stri
         "todos" => "从输入内容提取可执行事项，使用 Markdown 任务清单格式；补充负责人或日期时只能使用原文已有信息。",
         "title" => "根据输入内容生成一个简洁明确的标题，只输出标题，不使用引号或 Markdown 标记。",
         "tags" => "推荐 3 到 6 个简短标签，只输出逗号分隔的标签，不要解释，不要添加 #。",
+        "metadata" => "为输入内容整理元信息，严格输出两行：第一行以「标题：」开头给出一个简洁标题；第二行以「标签：」开头给出 3 到 6 个逗号分隔的简短标签。不要输出其他解释或 Markdown 标记。",
         "chat" => {
             system.push_str(
                 "\n回答当前文档问题时，在相关句子后使用 [1] 标注来源；没有依据时明确说明。",
@@ -696,6 +697,7 @@ mod tests {
             ("proofread", "校对整篇文档"),
             ("brainstorm", "创意方向"),
             ("explain", "解释输入内容"),
+            ("metadata", "整理元信息"),
         ] {
             let (system, _) = build_prompts(&test_request(operation), 30_000);
             assert!(system.contains(expected), "missing prompt for {operation}");

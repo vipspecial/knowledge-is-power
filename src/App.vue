@@ -86,7 +86,7 @@ const aiPanel = ref<InstanceType<typeof AiPanel> | null>(null);
 const richTextEditor = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const sidebarWidth = ref(clamp(readStoredNumber(browserStorageKeys.sidebarWidth, 264), 220, 380));
 const aiPanelWidth = ref(clamp(readStoredNumber(browserStorageKeys.aiPanelWidth, 330), 300, 480));
-const metadataAiBusy = ref<"title" | "tags" | null>(null);
+const metadataAiBusy = ref<"title" | "tags" | "metadata" | null>(null);
 const contextMenu = ref<ContextMenuState | null>(null);
 const isTauriDesktop = "__TAURI_INTERNALS__" in window;
 const isMacOsDesktop = isTauriDesktop && /Macintosh|Mac OS X/.test(navigator.userAgent);
@@ -784,7 +784,7 @@ function parseAiTags(content: string): string[] {
     .slice(0, 8);
 }
 
-async function generateMetadata(operation: "title" | "tags"): Promise<void> {
+async function generateMetadata(operation: "title" | "tags" | "metadata"): Promise<void> {
   const note = selectedNote.value;
   if (!note || metadataAiBusy.value || !ensureAiReady()) return;
   if (!note.content.trim()) {
@@ -807,8 +807,14 @@ async function generateMetadata(operation: "title" | "tags"): Promise<void> {
     if (!output.trim()) throw new Error("模型没有返回内容");
     if (operation === "title") {
       applyAiTitle(output);
-    } else {
+    } else if (operation === "tags") {
       applyAiTags(parseAiTags(output));
+    } else {
+      const titleLine = output.match(/^\s*标题[：:]\s*(.+)$/m)?.[1];
+      const tagsLine = output.match(/^\s*标签[：:]\s*(.+)$/m)?.[1];
+      if (!titleLine && !tagsLine) throw new Error("模型没有返回可用的元信息");
+      if (titleLine) applyAiTitle(titleLine);
+      if (tagsLine) applyAiTags(parseAiTags(tagsLine));
     }
   } catch (error) {
     showToast(`AI 生成失败：${String(error)}`);
@@ -1199,12 +1205,16 @@ onBeforeUnmount(() => {
           >
             <span>✦</span>AI
           </button>
-          <button class="icon-button" :class="{ selected: selectedNote.pinned }" type="button" title="置顶笔记" aria-label="置顶笔记" @click="togglePin">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 4 6 0-1 5 3 3v2H7v-2l3-3-1-5Zm3 10v6" /></svg>
-          </button>
           <div class="popup-menu-wrap" @click.stop>
             <button class="icon-button" type="button" title="更多文档操作" aria-label="更多文档操作" @click="toggleMenu('document')">•••</button>
             <div v-if="documentMenuOpen" class="popup-menu document-popup" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                :disabled="metadataAiBusy !== null"
+                @click="generateMetadata('metadata'); closeMenus()"
+              >{{ metadataAiBusy === 'metadata' ? 'AI 整理中…' : 'AI 整理标题和标签' }}</button>
+              <button type="button" role="menuitem" @click="togglePin(); closeMenus()">{{ selectedNote.pinned ? '取消置顶' : '置顶笔记' }}</button>
               <button type="button" role="menuitem" @click="exportMarkdown(); closeMenus()">导出 Markdown</button>
               <span></span>
               <button class="danger" type="button" role="menuitem" @click="requestDelete(); closeMenus()">删除笔记</button>
@@ -1216,30 +1226,10 @@ onBeforeUnmount(() => {
       <article class="editor">
         <div class="title-row">
           <input ref="titleInput" v-model="selectedNote.title" class="title-input" type="text" maxlength="200" placeholder="无标题笔记" aria-label="笔记标题" @input="markEdited" />
-          <button
-            class="field-ai-button icon-only"
-            type="button"
-            :disabled="metadataAiBusy !== null"
-            :title="metadataAiBusy === 'title' ? '正在拟标题' : 'AI 拟标题'"
-            :aria-label="metadataAiBusy === 'title' ? '正在拟标题' : 'AI 拟标题'"
-            @click="generateMetadata('title')"
-          >
-            <span>{{ metadataAiBusy === 'title' ? '…' : '✦' }}</span>
-          </button>
         </div>
         <div class="tag-editor">
           <span>标签</span>
           <input :value="selectedNote.tags.join(', ')" type="text" maxlength="160" placeholder="工作, 灵感（用逗号分隔）" @change="updateTags" />
-          <button
-            class="field-ai-button compact icon-only"
-            type="button"
-            :disabled="metadataAiBusy !== null"
-            :title="metadataAiBusy === 'tags' ? '正在打标签' : 'AI 打标签'"
-            :aria-label="metadataAiBusy === 'tags' ? '正在打标签' : 'AI 打标签'"
-            @click="generateMetadata('tags')"
-          >
-            <span>{{ metadataAiBusy === 'tags' ? '…' : '✦' }}</span>
-          </button>
         </div>
 
         <RichTextEditor
@@ -1280,7 +1270,7 @@ onBeforeUnmount(() => {
       </template>
       <template v-else>
         <img class="empty-logo" src="/logo.svg" alt="" />
-        <h2>写下此刻</h2>
+        <h2>开始你的第一篇笔记</h2>
         <p>“{{ selectedKnowledgeBase?.name }}”还没有笔记。</p>
         <button type="button" @click="addNote()">新建笔记</button>
       </template>
