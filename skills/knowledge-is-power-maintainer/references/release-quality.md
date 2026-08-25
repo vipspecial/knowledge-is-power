@@ -39,7 +39,7 @@ git diff --check
 - 每个完成的修改创建一次中文 Conventional Commit，例如 `feat: 增加……`、`fix: 修复……`、`docs: 优化……`、`ci: 调整……`。
 - 提交前再次检查 `git status` 和差异，只暂存本次文件；不夹带用户无关改动或本地密钥。
 - 未经明确要求不要 amend 旧提交、强制推送、创建标签、推送标签或发布 Release。
-- 标签不会自动生成。发布时标签必须与版本完全一致，格式为 `vX.Y.Z`。
+- 标签不会自动生成。发布时标签必须与版本完全一致，格式为 `vX.Y.Z`；统一使用 `npm run tag-release` 打标（自动校验工作区干净、HEAD 已推送、标签未重复，从 package.json 读取版本），不要手动 `git tag`。
 
 ## 当前 CI 与发布状态
 

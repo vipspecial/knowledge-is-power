@@ -1,7 +1,7 @@
 {
   "name": "orange-run-notes",
   "private": true,
-  "version": "0.12.1",
+  "version": "0.12.2",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
     "build:windows": "tauri build --bundles nsis --config src-tauri/tauri.local.conf.json",
     "build:linux": "tauri build --bundles deb,appimage --config src-tauri/tauri.local.conf.json",
     "check:version": "node scripts/check-version.mjs",
+    "tag-release": "node scripts/tag-release.mjs",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
   },
   "dependencies": {
