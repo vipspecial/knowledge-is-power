@@ -3,6 +3,7 @@ export const browserStorageKeys = {
   mcpEnabled: "orange-run-notes-mcp-enabled",
   notes: "orange-run-notes-notes",
   documentAiModels: "orange-run-notes-document-ai-models-v1",
+  documentAiConversations: "orange-run-notes-document-ai-conversations-v1",
   sidebarCollapsed: "orange-run-notes-sidebar-collapsed",
   libraryRailCollapsed: "orange-run-notes-library-collapsed",
   noteListMode: "orange-run-notes-note-list-mode",

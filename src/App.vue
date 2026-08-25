@@ -742,9 +742,23 @@ function applyAiPanelResult(payload: AiApplyPayload): void {
     return;
   }
   if (payload.target === "selection" && payload.range) {
+    if (
+      payload.originalContent !== undefined
+      && currentEditor.getRangeText(payload.range.from, payload.range.to) !== payload.originalContent.trim()
+    ) {
+      showToast("原选区已经变化，请重新选择后再试");
+      return;
+    }
     currentEditor.replaceRange(payload.range.from, payload.range.to, payload.content);
     showToast("已替换原选区");
   } else if (payload.target === "document") {
+    if (
+      payload.originalContent !== undefined
+      && note.content.trim() !== payload.originalContent.trim()
+    ) {
+      showToast("正文已经变化，请重新生成后再应用");
+      return;
+    }
     currentEditor.replaceDocument(payload.content);
     showToast("已替换当前文章正文");
   } else if (payload.target === "append") {
@@ -756,6 +770,7 @@ function applyAiPanelResult(payload: AiApplyPayload): void {
     else currentEditor.appendMarkdown(payload.content);
     showToast("AI 内容已插入正文");
   }
+  aiPanel.value?.markApplied(payload.messageId);
   selectedText.value = "";
   selectionRange.value = { start: 0, end: 0 };
 }
@@ -1002,7 +1017,7 @@ onMounted(async () => {
       notes.value = [
         makeNote(
           "欢迎使用",
-          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 标题和标签旁有各自的智能入口，正文工具栏支持续写、校对和写作工作台\n- AI 助手只读取当前文档，不会自动读取其他文档\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + K` 全局搜索，`⌘/Ctrl + F` 搜索当前知识库\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
+          "## 从这里开始\n\n这是一款本地优先的 **AI 知识库**。\n\n- 正文采用单区所见即所得编辑，无需理解 Markdown 源码\n- 支持标题、富文本、任务清单、引用、代码、链接和表格\n- 每篇笔记仍保存为开放、可迁移的 `.md` 文件\n- 选中文字即可润色、精简、扩写或翻译\n- 正文工具栏的 AI 菜单提供写作、续写、校对和提炼\n- 每篇文档拥有独立 AI 对话，并保存在本机\n- 使用 `⌘/Ctrl + N` 新建笔记，`⌘/Ctrl + K` 全局搜索，`⌘/Ctrl + F` 搜索当前知识库\n\n> 只有主动使用 AI 时，当前文档或选中内容才会发送到你配置的模型服务。",
         ),
       ];
       notes.value[0].tags = ["开始", "AI"];
@@ -1202,26 +1217,28 @@ onBeforeUnmount(() => {
         <div class="title-row">
           <input ref="titleInput" v-model="selectedNote.title" class="title-input" type="text" maxlength="200" placeholder="无标题笔记" aria-label="笔记标题" @input="markEdited" />
           <button
-            class="field-ai-button"
+            class="field-ai-button icon-only"
             type="button"
             :disabled="metadataAiBusy !== null"
-            title="根据当前文章生成标题"
+            :title="metadataAiBusy === 'title' ? '正在拟标题' : 'AI 拟标题'"
+            :aria-label="metadataAiBusy === 'title' ? '正在拟标题' : 'AI 拟标题'"
             @click="generateMetadata('title')"
           >
-            <span>✦</span>{{ metadataAiBusy === 'title' ? '生成中' : '生成标题' }}
+            <span>{{ metadataAiBusy === 'title' ? '…' : '✦' }}</span>
           </button>
         </div>
         <div class="tag-editor">
           <span>标签</span>
           <input :value="selectedNote.tags.join(', ')" type="text" maxlength="160" placeholder="工作, 灵感（用逗号分隔）" @change="updateTags" />
           <button
-            class="field-ai-button compact"
+            class="field-ai-button compact icon-only"
             type="button"
             :disabled="metadataAiBusy !== null"
-            title="根据当前文章推荐标签"
+            :title="metadataAiBusy === 'tags' ? '正在打标签' : 'AI 打标签'"
+            :aria-label="metadataAiBusy === 'tags' ? '正在打标签' : 'AI 打标签'"
             @click="generateMetadata('tags')"
           >
-            <span>✦</span>{{ metadataAiBusy === 'tags' ? '生成中' : '智能标签' }}
+            <span>{{ metadataAiBusy === 'tags' ? '…' : '✦' }}</span>
           </button>
         </div>
 
@@ -1235,11 +1252,12 @@ onBeforeUnmount(() => {
         >
           <template #actions>
             <div class="markdown-ai-tools">
-              <button type="button" title="从当前文章结尾继续写" @click="runContextualAi('continue', '续写当前文章', 'append')"><span>✦</span>续写</button>
-              <button type="button" title="打开 AI 写作工作台" @click="openAiWriting"><span>✦</span>写作</button>
               <div class="popup-menu-wrap" @click.stop>
-                <button type="button" title="更多 AI 工具" @click="toggleMenu('editorAi')">AI⌄</button>
+                <button type="button" title="当前文章 AI 工具" @click="toggleMenu('editorAi')"><span>✦</span>AI</button>
                 <div v-if="editorAiMenuOpen" class="popup-menu ai-tools-popup" role="menu">
+                  <button type="button" role="menuitem" @click="openAiWriting(); closeMenus()">AI 写作</button>
+                  <span></span>
+                  <button type="button" role="menuitem" @click="runContextualAi('continue', '续写当前文章', 'append'); closeMenus()">续写正文</button>
                   <button type="button" role="menuitem" @click="runContextualAi('proofread', '校对当前文章', 'document'); closeMenus()">全文校对</button>
                   <button type="button" role="menuitem" @click="runContextualAi('outline', '生成文章大纲', 'append'); closeMenus()">生成大纲</button>
                   <button type="button" role="menuitem" @click="runContextualAi('summarize', '总结当前文章', 'append'); closeMenus()">生成摘要</button>

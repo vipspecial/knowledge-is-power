@@ -238,6 +238,14 @@ function appendMarkdown(markdown: string): void {
     .run();
 }
 
+function getRangeText(from: number, to: number): string {
+  if (!editor.value) return "";
+  const maximum = editor.value.state.doc.content.size;
+  const safeFrom = Math.max(0, Math.min(from, maximum));
+  const safeTo = Math.max(safeFrom, Math.min(to, maximum));
+  return editor.value.state.doc.textBetween(safeFrom, safeTo, "\n").trim();
+}
+
 function handleWindowClick(): void {
   closeMore();
   selectionMoreOpen.value = false;
@@ -256,7 +264,7 @@ onBeforeUnmount(() => {
   editorScrollElement?.removeEventListener("scroll", updateSelectionBubble);
 });
 
-defineExpose({ replaceRange, replaceDocument, appendMarkdown });
+defineExpose({ replaceRange, replaceDocument, appendMarkdown, getRangeText });
 </script>
 
 <template>

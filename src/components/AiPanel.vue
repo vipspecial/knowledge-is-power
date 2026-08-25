@@ -6,6 +6,7 @@ import { abortAiStream, createDocumentAiRequest, streamAi } from "../ai";
 import { browserStorageKeys, readBrowserStorage, writeBrowserStorage } from "../browserStorage";
 import { renderMermaidSvg } from "../mermaid";
 import { createStreamPacer } from "../streaming";
+import AiChangeReview from "./AiChangeReview.vue";
 import type {
   AiApplyPayload,
   AiContentTarget,
@@ -28,6 +29,9 @@ interface AiMessage {
   pending?: boolean;
   error?: boolean;
   applied?: boolean;
+  actionable?: boolean;
+  originalContent?: string;
+  retry?: RunOptions;
 }
 
 interface RunOptions {
@@ -39,6 +43,11 @@ interface RunOptions {
   target?: AiContentTarget;
   range?: AiTextRange;
   userContent: string;
+}
+
+interface StoredConversation {
+  updatedAt: string;
+  messages: AiMessage[];
 }
 
 const props = withDefaults(defineProps<{
@@ -56,13 +65,20 @@ const emit = defineEmits<{
   apply: [payload: AiApplyPayload];
 }>();
 
-/** Each document owns an independent in-memory conversation. */
-const conversations = ref<Record<string, AiMessage[]>>({});
+const restoredConversations = loadConversations();
+/** 会话按稳定文档 ID 隔离，并从本机应用存储恢复。 */
+const conversations = ref<Record<string, AiMessage[]>>(restoredConversations.conversations);
+const conversationUpdatedAt = ref<Record<string, string>>(restoredConversations.updatedAt);
 const chatInput = ref("");
 const busy = ref(false);
 const messageList = ref<HTMLElement | null>(null);
+const composerInput = ref<HTMLTextAreaElement | null>(null);
 const taskQueue: AiPanelTask[] = [];
 const documentModels = ref<Record<string, string>>(loadDocumentModels());
+const copiedMessageId = ref("");
+const reviewMessage = ref<AiMessage | null>(null);
+const conversationStorageError = ref(false);
+let copiedTimer: number | undefined;
 
 const quickPrompts = [
   { label: "快速摘要", prompt: "用一段摘要和三个要点概括当前文档。" },
@@ -80,8 +96,8 @@ const streamPacer = createStreamPacer((chunk) => {
 const currentMessages = computed(() =>
   props.note ? conversations.value[props.note.id] ?? [] : [],
 );
-const contextLabel = computed(() =>
-  props.note ? `独立会话 · ${props.note.title || "无标题文档"}` : "未选择文档",
+const recentContextCount = computed(() =>
+  Math.min(8, currentMessages.value.filter((message) => message.content.trim() && !message.error).length),
 );
 const availableModels = computed(() =>
   [...new Set([...props.models, props.model].map((model) => model.trim()).filter(Boolean))],
@@ -89,6 +105,89 @@ const availableModels = computed(() =>
 const currentModel = computed(() =>
   props.note ? modelForDocument(props.note.id) : props.model,
 );
+
+function loadConversations(): {
+  conversations: Record<string, AiMessage[]>;
+  updatedAt: Record<string, string>;
+} {
+  const empty = { conversations: {}, updatedAt: {} };
+  try {
+    const raw = readBrowserStorage(browserStorageKeys.documentAiConversations);
+    if (!raw) return empty;
+    const stored = JSON.parse(raw) as { documents?: Record<string, StoredConversation> };
+    const conversations: Record<string, AiMessage[]> = {};
+    const updatedAt: Record<string, string> = {};
+    for (const [documentId, conversation] of Object.entries(stored.documents ?? {})) {
+      if (!documentId || documentId.length > 200 || !Array.isArray(conversation.messages)) continue;
+      conversations[documentId] = conversation.messages
+        .slice(-24)
+        .filter((message) => message && (message.role === "user" || message.role === "assistant"))
+        .map((message) => ({
+          id: typeof message.id === "string" ? message.id : createId(),
+          role: message.role,
+          content: typeof message.content === "string" ? message.content.slice(0, 16_000) : "",
+          operation: message.operation ?? "chat",
+          sources: Array.isArray(message.sources)
+            ? message.sources.filter((source): source is string => typeof source === "string").slice(0, 3)
+            : [],
+          label: typeof message.label === "string" ? message.label.slice(0, 80) : undefined,
+          error: Boolean(message.error),
+          applied: Boolean(message.applied),
+          pending: false,
+          actionable: false,
+        }));
+      updatedAt[documentId] = typeof conversation.updatedAt === "string"
+        ? conversation.updatedAt
+        : new Date(0).toISOString();
+    }
+    return { conversations, updatedAt };
+  } catch {
+    return empty;
+  }
+}
+
+function persistConversations(documentId?: string): void {
+  if (documentId) conversationUpdatedAt.value[documentId] = new Date().toISOString();
+  const entries = Object.entries(conversations.value)
+    .map(([id, messages]) => ({
+      id,
+      updatedAt: conversationUpdatedAt.value[id] ?? new Date(0).toISOString(),
+      messages: messages
+        .filter((message) => !message.pending && message.content.trim())
+        .slice(-24)
+        .map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content.slice(0, 16_000),
+          operation: message.operation,
+          sources: message.sources.slice(0, 3),
+          label: message.label,
+          error: message.error,
+          applied: message.applied,
+        })),
+    }))
+    .filter((entry) => entry.messages.length)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .slice(0, 40);
+
+  const documents: Record<string, StoredConversation> = {};
+  for (const entry of entries) {
+    documents[entry.id] = { updatedAt: entry.updatedAt, messages: entry.messages };
+    if (JSON.stringify({ version: 1, documents }).length > 1_500_000) {
+      delete documents[entry.id];
+      break;
+    }
+  }
+  try {
+    writeBrowserStorage(
+      browserStorageKeys.documentAiConversations,
+      JSON.stringify({ version: 1, documents }),
+    );
+    conversationStorageError.value = false;
+  } catch {
+    conversationStorageError.value = true;
+  }
+}
 
 function loadDocumentModels(): Record<string, string> {
   try {
@@ -171,6 +270,17 @@ async function runRequest(options: RunOptions): Promise<void> {
     target: options.target,
     range: options.range,
     pending: true,
+    actionable: true,
+    originalContent: options.target === "selection"
+      ? options.selection ?? ""
+      : options.target === "document"
+        ? options.note.content
+        : "",
+    retry: {
+      ...options,
+      note: { ...options.note, tags: [...options.note.tags] },
+      range: options.range ? { ...options.range } : undefined,
+    },
   });
   messages.push({
     id: createId(),
@@ -229,6 +339,7 @@ async function runRequest(options: RunOptions): Promise<void> {
   } finally {
     streamTarget = null;
     busy.value = false;
+    persistConversations(options.note.id);
     await scrollToBottom();
     const nextTask = taskQueue.shift();
     if (nextTask) void executeTask(nextTask);
@@ -273,24 +384,95 @@ function stopGeneration(): void {
 }
 
 function messageActionLabel(message: AiMessage): string {
-  if (message.target === "selection") return "替换选区";
-  if (message.target === "document") return "替换全文";
+  if (message.target === "selection" || message.target === "document") return "预览修改";
   if (message.target === "append") return "追加正文";
   return "插入正文";
 }
 
-function applyMessage(message: AiMessage, documentId: string): void {
-  if (!message.content.trim() || message.pending || message.error) return;
+function emitMessageApply(message: AiMessage, documentId: string, content = message.content): void {
   emit("apply", {
+    messageId: message.id,
     documentId,
-    content: message.content.trim(),
+    content: content.trim(),
+    originalContent: message.originalContent,
     target: message.target ?? "insert",
     range: message.range,
   });
-  message.applied = true;
+  reviewMessage.value = null;
 }
 
-defineExpose({ acceptTask });
+function applyMessage(message: AiMessage, documentId: string): void {
+  if (!message.content.trim() || message.pending || message.error) return;
+  if ((message.target === "selection" || message.target === "document") && message.originalContent) {
+    reviewMessage.value = message;
+    return;
+  }
+  emitMessageApply(message, documentId);
+}
+
+async function copyMessage(message: AiMessage): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(message.content);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = message.content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied) throw new Error("copy failed");
+    }
+    copiedMessageId.value = message.id;
+    window.clearTimeout(copiedTimer);
+    copiedTimer = window.setTimeout(() => (copiedMessageId.value = ""), 1600);
+  } catch {
+    copiedMessageId.value = "";
+  }
+}
+
+function retryMessage(message: AiMessage): void {
+  if (busy.value || !message.retry || !props.note) return;
+  const retry = message.retry;
+  void runRequest({
+    ...retry,
+    note: { ...props.note, tags: [...props.note.tags] },
+    range: retry.range ? { ...retry.range } : undefined,
+  });
+}
+
+function followUpMessage(message: AiMessage): void {
+  const excerpt = message.content.replace(/\s+/g, " ").trim().slice(0, 72);
+  chatInput.value = `关于“${excerpt}${message.content.length > 72 ? "…" : ""}”：`;
+  void nextTick(() => composerInput.value?.focus());
+}
+
+function clearConversation(): void {
+  if (!props.note || busy.value || !currentMessages.value.length) return;
+  if (!window.confirm("清空当前文档的 AI 对话？正文不会受到影响。")) return;
+  delete conversations.value[props.note.id];
+  delete conversationUpdatedAt.value[props.note.id];
+  persistConversations();
+}
+
+function markApplied(messageId: string): void {
+  for (const [documentId, messages] of Object.entries(conversations.value)) {
+    const message = messages.find((item) => item.id === messageId);
+    if (!message) continue;
+    message.applied = true;
+    persistConversations(documentId);
+    return;
+  }
+}
+
+function applyReviewedChange(content: string): void {
+  if (!reviewMessage.value || !props.note) return;
+  emitMessageApply(reviewMessage.value, props.note.id, content);
+}
+
+defineExpose({ acceptTask, markApplied });
 
 /** 会话空闲后把已生成消息里的 Mermaid 代码块替换为渲染图示，语法错误时保留源码。 */
 async function renderMermaidBlocks(): Promise<void> {
@@ -322,9 +504,18 @@ watch(
   { deep: true },
 );
 
+watch(
+  () => props.note?.id,
+  () => {
+    reviewMessage.value = null;
+    chatInput.value = "";
+  },
+);
+
 onBeforeUnmount(() => {
   streamPacer.reset();
   streamTarget = null;
+  window.clearTimeout(copiedTimer);
 });
 </script>
 
@@ -335,37 +526,34 @@ onBeforeUnmount(() => {
         <span class="ai-mark">✦</span>
         <div>
           <strong>AI 助手</strong>
-          <small>仅处理当前文章</small>
+          <small>当前文档独立会话</small>
         </div>
       </div>
-      <button type="button" aria-label="关闭 AI 助手" @click="emit('close')">×</button>
+      <div class="ai-header-actions">
+        <button
+          v-if="currentMessages.length"
+          type="button"
+          :disabled="busy"
+          title="清空当前文档对话"
+          @click="clearConversation"
+        >清空</button>
+        <button type="button" aria-label="关闭 AI 助手" @click="emit('close')">×</button>
+      </div>
     </header>
 
     <template v-if="enabled">
-      <section class="ai-context">
-        <span></span>
-        <p>{{ contextLabel }}</p>
-      </section>
-
-      <section class="ai-quick" aria-label="当前文档快捷提问">
-        <button
-          v-for="item in quickPrompts"
-          :key="item.label"
-          type="button"
-          :disabled="busy || !note"
-          @click="runChat(item.prompt)"
-        >
-          {{ item.label }}
-        </button>
-      </section>
-
       <section ref="messageList" class="ai-messages" aria-live="polite">
         <div v-if="currentMessages.length === 0" class="ai-welcome">
           <div>✦</div>
           <h3>问当前文档</h3>
-          <p>选区改写、全文处理和自由提问都汇总在这里，并按文章独立保存本次会话。</p>
-          <button type="button" :disabled="!note" @click="runChat('这篇文档最重要的三个结论是什么？')">提炼核心结论</button>
-          <button type="button" :disabled="!note" @click="runChat('以审稿人的角度，提出三个值得追问的问题。')">提出追问</button>
+          <p>会话只属于这篇文档，并保存在本机。</p>
+          <button
+            v-for="item in quickPrompts"
+            :key="item.label"
+            type="button"
+            :disabled="!note"
+            @click="runChat(item.prompt)"
+          >{{ item.label }}</button>
         </div>
 
         <article
@@ -379,10 +567,13 @@ onBeforeUnmount(() => {
             <div v-if="message.role === 'assistant' && message.label" class="message-operation"><span>✦</span>{{ message.label }}</div>
             <div v-if="message.content" class="message-markdown" v-html="renderMessage(message.content)"></div>
             <div v-else class="typing"><i></i><i></i><i></i></div>
-            <div v-if="message.role === 'assistant' && message.content && !message.error && note" class="message-actions">
-              <button type="button" :disabled="message.applied" @click="applyMessage(message, note.id)">
+            <div v-if="message.role === 'assistant' && message.content && !message.error" class="message-actions">
+              <button v-if="note && message.actionable" type="button" :disabled="message.applied" @click="applyMessage(message, note.id)">
                 {{ message.applied ? '已应用' : messageActionLabel(message) }}
               </button>
+              <button type="button" @click="copyMessage(message)">{{ copiedMessageId === message.id ? '已复制' : '复制' }}</button>
+              <button v-if="message.retry" type="button" :disabled="busy" @click="retryMessage(message)">重新生成</button>
+              <button type="button" :disabled="busy" @click="followUpMessage(message)">追问</button>
             </div>
             <div v-if="message.role === 'assistant' && message.sources.length" class="message-sources">
               <span v-for="(source, index) in message.sources" :key="`${source}-${index}`">[{{ index + 1 }}] {{ source }}</span>
@@ -392,7 +583,13 @@ onBeforeUnmount(() => {
       </section>
 
       <footer class="ai-composer">
+        <div class="composer-context" title="不会自动读取其他文档">
+          <span><i></i>当前文档全文</span>
+          <span>{{ recentContextCount ? `最近 ${recentContextCount} 条对话` : '不含历史对话' }}</span>
+          <em v-if="conversationStorageError">会话未保存</em>
+        </div>
         <textarea
+          ref="composerInput"
           v-model="chatInput"
           :disabled="busy || !note"
           rows="2"
@@ -425,6 +622,17 @@ onBeforeUnmount(() => {
       <p>设置模型服务后，右侧可进行当前文档问答；写作、改写、标题和标签会出现在对应编辑位置。</p>
       <button type="button" @click="emit('openSettings')">打开 AI 设置</button>
     </section>
+
+    <Teleport to="body">
+      <AiChangeReview
+        v-if="reviewMessage && note"
+        :label="reviewMessage.label || '确认修改'"
+        :original="reviewMessage.originalContent || ''"
+        :revised="reviewMessage.content"
+        @close="reviewMessage = null"
+        @apply="applyReviewedChange"
+      />
+    </Teleport>
   </aside>
 </template>
 
@@ -459,4 +667,6 @@ onBeforeUnmount(() => {
 .ai-actions button.featured:hover:not(:disabled){border-color:var(--accent-strong);background:var(--accent-strong)}
 .message-actions button,.message-sources span{border-color:var(--accent-border);color:var(--accent-strong);background:var(--accent-softest)}
 .article-writer textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgb(232 111 22 / 11%)}
+.ai-header-actions{display:flex;flex:0 0 auto;align-items:center;gap:3px!important}.ai-header-actions button{height:27px;padding:0 7px;border:0;border-radius:7px;color:#8b857b;background:transparent;cursor:pointer;font-size:var(--font-xs)}.ai-header-actions button:last-child{display:grid;width:27px;padding:0;place-items:center;font-size:var(--font-lg)}.ai-header-actions button:hover:not(:disabled){color:var(--accent-strong);background:#ebe7df}.ai-header-actions button:disabled{cursor:default;opacity:.45}
+.message-actions{flex-wrap:wrap}.composer-context{display:flex!important;min-width:0;justify-content:flex-start!important;gap:7px;margin-bottom:5px}.composer-context span{display:flex;align-items:center;gap:4px;padding:2px 6px;border-radius:5px;color:#817a70!important;background:#f4f0e8;font-size:var(--font-xs)!important;white-space:nowrap}.composer-context span i{width:5px;height:5px;border-radius:50%;background:var(--accent)}.composer-context em{margin-left:auto;color:#a34f47;font-size:var(--font-xs);font-style:normal;white-space:nowrap}
 </style>

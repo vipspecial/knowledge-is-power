@@ -68,6 +68,7 @@ const updateProgress = ref(0);
 let pendingUpdate: Update | null = null;
 const originalProvider = props.settings.ai.provider;
 const providerRegion = ref<AiProviderRegion>(findAiProvider(draft.value.ai.provider).region);
+const advancedAiOpen = ref(providerRegion.value === "custom");
 
 const visibleProviders = computed(() =>
   aiProviderPresets.filter((provider) => provider.region === providerRegion.value),
@@ -104,7 +105,7 @@ const providerRegions: readonly { id: AiProviderRegion; label: string }[] = [
 ];
 const settingsTabCopy: Record<SettingsTab, { title: string; description: string }> = {
   general: { title: "通用设置", description: "调整文档保存行为。" },
-  ai: { title: "AI 助手", description: "选择国内外主流服务，或接入自定义 API。" },
+  ai: { title: "AI 助手", description: "配置服务商、密钥和可用模型。" },
   storage: { title: "文档存储", description: "笔记会以开放文件保存在指定目录。" },
   mcp: { title: "MCP", description: "通过标准 MCP 协议开放知识库的只读能力。" },
   about: { title: "关于", description: "本地优先的 AI 知识库应用。" },
@@ -147,6 +148,7 @@ function selectProvider(providerId: string): void {
   showApiKey.value = false;
   resetConnectionTest();
   resetModelDiscovery();
+  if (provider.region === "custom") advancedAiOpen.value = true;
 }
 
 function selectProviderFromEvent(event: Event): void {
@@ -461,7 +463,7 @@ onMounted(async () => {
             <label class="switch-row">
               <span>
                 <strong>启用 AI 助手</strong>
-                <small>在标题、标签、选区和正文旁显示场景化入口，右侧保留当前文档问答。</small>
+                <small>在当前文档中启用写作、改写与问答。</small>
               </span>
               <input v-model="draft.ai.enabled" type="checkbox" />
               <i></i>
@@ -484,7 +486,7 @@ onMounted(async () => {
                   </button>
                 </div>
                 <label class="field">
-                  <span>模型服务</span>
+                  <span>服务商</span>
                   <select
                     :value="draft.ai.provider"
                     :disabled="!draft.ai.enabled"
@@ -498,21 +500,6 @@ onMounted(async () => {
               </div>
               <small class="provider-desc">{{ selectedProvider.description }}</small>
 
-              <div class="ai-row">
-                <label class="field">
-                  <span>API 地址</span>
-                  <input v-model.trim="draft.ai.baseUrl" :disabled="!draft.ai.enabled" type="url" required placeholder="https://api.example.com/v1" />
-                </label>
-                <label class="field">
-                  <span>接口协议</span>
-                  <select v-model="draft.ai.protocol" :disabled="!draft.ai.enabled">
-                    <option v-for="protocol in availableProtocols" :key="protocol" :value="protocol">
-                      {{ protocolLabel(protocol) }}
-                    </option>
-                  </select>
-                </label>
-              </div>
-
               <label class="field api-key-field">
                 <span>API Key</span>
                 <div>
@@ -525,7 +512,7 @@ onMounted(async () => {
                   />
                   <button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</button>
                 </div>
-                <small>密钥经本机绑定的 AES-256-GCM 加密后存储在应用数据目录，不会明文写入设置文件或文档目录，也不会请求系统钥匙串权限。</small>
+                <small>密钥仅加密保存在本机，不会写入文档，也不会请求系统钥匙串权限。</small>
                 <small v-if="credentialError" class="provider-key-warning">密钥存储不可用：{{ credentialError }}</small>
                 <small v-if="credentialScopeChanged && hasApiKey" class="provider-key-warning">服务商或 API 域名已切换，请输入新 Key；无 Key 服务请先移除旧密钥。</small>
                 <button v-if="hasApiKey" class="clear-key" type="button" @click="removeApiKey">移除已保存密钥</button>
@@ -538,7 +525,7 @@ onMounted(async () => {
                     <option v-for="model in draft.ai.models" :key="model" :value="model">{{ model }}</option>
                   </select>
                   <button type="button" :disabled="!draft.ai.enabled || modelsLoading" @click="fetchModels">
-                    {{ modelsLoading ? '正在获取…' : '获取模型列表' }}
+                    {{ modelsLoading ? '正在同步…' : '同步模型' }}
                   </button>
                 </div>
                 <div v-if="discoveredModels.length" class="discovered-models" aria-label="获取到的模型列表">
@@ -559,7 +546,7 @@ onMounted(async () => {
                     v-model.trim="modelCandidate"
                     :disabled="!draft.ai.enabled"
                     type="text"
-                    placeholder="接口不支持获取列表时，可手动输入模型 ID"
+                    placeholder="手动输入模型 ID"
                     @keydown.enter.prevent="addConfiguredModel()"
                   />
                   <button type="button" :disabled="!draft.ai.enabled" @click="addConfiguredModel()">加入</button>
@@ -573,20 +560,48 @@ onMounted(async () => {
                 <small v-if="modelMessage" class="model-message">{{ modelMessage }}</small>
               </div>
 
-              <div class="ai-row">
-                <label class="field">
-                  <span>创造性 {{ draft.ai.temperature.toFixed(1) }}</span>
-                  <input v-model.number="draft.ai.temperature" :disabled="!draft.ai.enabled" type="range" min="0" max="2" step="0.1" />
-                </label>
-                <label class="field">
-                  <span>文档读取上限</span>
-                  <select v-model.number="draft.ai.maxContextChars" :disabled="!draft.ai.enabled">
-                    <option :value="10000">约 10,000 字符</option>
-                    <option :value="30000">约 30,000 字符</option>
-                    <option :value="60000">约 60,000 字符</option>
-                    <option :value="120000">约 120,000 字符</option>
-                  </select>
-                </label>
+              <div class="ai-advanced">
+                <button
+                  class="ai-advanced-toggle"
+                  type="button"
+                  :aria-expanded="advancedAiOpen"
+                  @click="advancedAiOpen = !advancedAiOpen"
+                >
+                  <span>高级配置</span>
+                  <small>{{ selectedProvider.region === 'custom' ? '自定义地址与请求参数' : '地址、协议与生成参数' }}</small>
+                  <i>{{ advancedAiOpen ? '⌃' : '⌄' }}</i>
+                </button>
+                <div v-if="advancedAiOpen" class="ai-advanced-content">
+                  <div class="ai-row">
+                    <label class="field">
+                      <span>API 地址</span>
+                      <input v-model.trim="draft.ai.baseUrl" :disabled="!draft.ai.enabled" type="url" required placeholder="https://api.example.com/v1" />
+                    </label>
+                    <label class="field">
+                      <span>接口协议</span>
+                      <select v-model="draft.ai.protocol" :disabled="!draft.ai.enabled">
+                        <option v-for="protocol in availableProtocols" :key="protocol" :value="protocol">
+                          {{ protocolLabel(protocol) }}
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="ai-row">
+                    <label class="field">
+                      <span>创造性 {{ draft.ai.temperature.toFixed(1) }}</span>
+                      <input v-model.number="draft.ai.temperature" :disabled="!draft.ai.enabled" type="range" min="0" max="2" step="0.1" />
+                    </label>
+                    <label class="field">
+                      <span>上下文范围</span>
+                      <select v-model.number="draft.ai.maxContextChars" :disabled="!draft.ai.enabled">
+                        <option :value="10000">约 10,000 字符</option>
+                        <option :value="30000">约 30,000 字符</option>
+                        <option :value="60000">约 60,000 字符</option>
+                        <option :value="120000">约 120,000 字符</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -739,6 +754,7 @@ onMounted(async () => {
 .provider-regions{display:flex;gap:4px;padding:3px;border-radius:9px;background:#f1ede6}.provider-regions button{height:31px;padding:0 12px;border:0;border-radius:7px;color:#7b746a;background:transparent;cursor:pointer;font-size:var(--font-sm)}.provider-regions button.active{color:var(--accent-strong);background:#fff;box-shadow:0 2px 7px rgb(61 47 31 / 8%);font-weight:700}.provider-regions button:disabled{cursor:default}.provider-key-warning{color:#a65a3e!important}
 .model-active-row,.model-add-row{display:flex;gap:7px}.model-active-row select,.model-add-row input{min-width:0;flex:1}.model-active-row button,.model-add-row button{height:37px;flex:0 0 auto;padding:0 11px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:var(--font-sm);font-weight:600}.model-active-row button:disabled,.model-add-row button:disabled{opacity:.55;cursor:default}.discovered-models{display:flex;flex-wrap:wrap;gap:5px;max-height:128px;overflow-y:auto;padding:8px;border:1px solid #e5e0d7;border-radius:8px;background:#faf8f4}.discovered-models button{height:27px;padding:0 9px;border:1px solid #ded9d0;border-radius:7px;color:#6f685f;background:#fff;cursor:pointer;font-size:var(--font-xs)}.discovered-models button:hover{border-color:var(--accent-border);color:var(--accent-strong)}.discovered-models button.added{border-color:var(--accent-border);background:var(--accent-softest);color:var(--accent-strong)}.discovered-models button.current{font-weight:700}.discovered-models button:disabled{cursor:default;opacity:.55}.configured-models{display:flex;flex-wrap:wrap;gap:5px}.model-chip{display:flex;min-width:0;max-width:100%;overflow:hidden;border:1px solid #ded9d0;border-radius:7px;background:#f7f4ee}.model-chip.active{border-color:var(--accent-border);background:var(--accent-softest)}.model-chip button{height:27px;border:0;color:#6f685f;background:transparent;cursor:pointer;font-size:var(--font-xs)}.model-chip button:first-child{min-width:0;overflow:hidden;padding:0 8px;text-overflow:ellipsis;white-space:nowrap}.model-chip button:last-child{width:24px;flex:0 0 auto;border-left:1px solid rgb(0 0 0 / 6%);color:#9a7567}.model-chip.active button:first-child{color:var(--accent-strong);font-weight:700}.model-message{color:var(--accent-strong)!important}
 .model-chip button:disabled{cursor:default;opacity:.55}
+.ai-advanced{overflow:hidden;border:1px solid #e4dfd6;border-radius:10px;background:#f8f5ef}.ai-advanced-toggle{display:grid;width:100%;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:11px 12px;border:0;color:#5d574f;background:transparent;cursor:pointer;text-align:left}.ai-advanced-toggle>span{font-size:var(--font-md);font-weight:700}.ai-advanced-toggle small{color:#918a80;font-size:var(--font-xs)}.ai-advanced-toggle i{color:var(--accent-strong);font-style:normal}.ai-advanced-toggle:hover{background:#f3efe7}.ai-advanced-content{display:grid;gap:13px;padding:13px;border-top:1px solid #e4dfd6;background:#fff}
 .storage-card{display:flex;align-items:center;gap:13px;padding:16px;border:1px solid #e2ded5;border-radius:11px;background:#fff}.folder-icon{display:grid;width:40px;height:40px;place-items:center;border-radius:10px;color:#5c735f;background:#e9efe9}.storage-card>div:last-child{display:grid;min-width:0;gap:5px}.storage-card strong,.storage-info strong{font-size:var(--font-md)}.storage-card code{overflow:hidden;color:#777168;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--font-sm);text-overflow:ellipsis;white-space:nowrap}.choose-directory{justify-self:start}.storage-info{margin-top:10px;padding:16px;border-radius:10px;color:#767067;background:#f2efe8}.storage-info p{margin-top:7px;font-size:var(--font-sm);line-height:1.55}.about-settings{padding:14px 4px}.about-product{display:flex;align-items:center;gap:14px;text-align:left}.about-product img{width:58px;height:58px;border-radius:16px;box-shadow:0 10px 30px rgb(50 66 54 / 16%)}.about-product h3{margin:0;font-size:17px}.about-product p,.privacy-note{margin-top:5px;color:#7f796f;font-size:var(--font-sm);line-height:1.65}.update-card{position:relative;display:grid;grid-template-columns:1fr auto;gap:5px 16px;margin-top:7px;padding:16px;border:1px solid #e3ded4;border-radius:12px;background:#fff;text-align:left}.update-card>div:first-child{min-width:0}.update-card strong{font-size:var(--font-md)}.update-card p{margin:5px 0 0;color:#878076;font-size:var(--font-sm);line-height:1.55}.update-card>button{height:33px;align-self:center;padding:0 12px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:var(--font-sm);font-weight:700}.update-card>button:disabled{opacity:.58;cursor:default}.update-card.available{border-color:var(--accent-border);background:#fffaf5}
 .switch-row.disabled{cursor:default;opacity:.6}
 .mcp-scope-card{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-scope-card.disabled,.mcp-install-card.disabled{opacity:.55}.mcp-scope-icon{display:grid;width:36px;height:36px;flex:0 0 auto;place-items:center;border-radius:10px;color:var(--accent-strong);background:var(--accent-soft);font-size:20px}.mcp-scope-card>div:last-child{display:grid;min-width:0;gap:4px}.mcp-scope-card strong,.mcp-install-heading strong,.mcp-copy-row strong{font-size:var(--font-md)}.mcp-scope-card p,.mcp-install-heading p,.mcp-copy-row p{margin:0;color:#827b72;font-size:var(--font-sm);line-height:1.5}.mcp-scope-card code{overflow:hidden;color:#6f6960;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--font-xs);text-overflow:ellipsis;white-space:nowrap}.mcp-install-card{display:grid;gap:12px;padding:15px;border:1px solid #e3ded4;border-radius:11px;background:#fff;transition:opacity .15s}.mcp-install-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}.mcp-install-heading>div{display:grid;gap:4px}.mcp-copy-row{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px;border:1px solid #e7e1d8;border-radius:10px;background:#faf8f4}.mcp-copy-row>div{display:grid;min-width:0;gap:3px}.mcp-install-mark{display:grid;width:42px;height:42px;place-items:center;border-radius:11px;color:var(--accent-strong);background:var(--accent-soft);font-size:11px;font-weight:800;letter-spacing:.04em}.mcp-copy-button{height:34px;flex:0 0 auto;padding:0 13px;border:1px solid var(--accent-border);border-radius:8px;color:var(--accent-strong);background:var(--accent-softest);cursor:pointer;font-size:var(--font-sm);font-weight:700}.mcp-copy-button:disabled{cursor:default;opacity:.55}.mcp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:0;padding:0;list-style:none}.mcp-steps li{display:flex;gap:7px;align-items:flex-start}.mcp-steps li>span{flex:0 0 auto;color:var(--accent-strong);font-size:16px;line-height:1.2}.mcp-steps p{margin:0;color:#858077;font-size:var(--font-xs);line-height:1.45}.mcp-steps strong{display:block;color:#5c564e;font-size:var(--font-xs)}.mcp-message{color:var(--accent-strong)!important;font-size:var(--font-sm)!important}.mcp-security-note{padding:11px 13px;border-radius:9px;color:#7c756c;background:#f3efe8;font-size:var(--font-xs)!important;line-height:1.55}

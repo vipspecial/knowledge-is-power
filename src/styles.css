@@ -1200,6 +1200,22 @@ kbd {
   background: transparent;
 }
 
+.field-ai-button.icon-only {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.68;
+}
+
+.title-row:hover .field-ai-button.icon-only,
+.tag-editor:hover .field-ai-button.icon-only,
+.field-ai-button.icon-only:focus-visible,
+.field-ai-button.icon-only:hover:not(:disabled) {
+  opacity: 1;
+}
+
 .tag-editor {
   display: flex;
   height: 28px;
@@ -1253,20 +1269,6 @@ kbd {
 
 .markdown-ai-tools button span {
   color: var(--accent);
-}
-
-.markdown-ai-tools > button:nth-child(2) {
-  color: #fff;
-  background: var(--accent-solid);
-}
-
-.markdown-ai-tools > button:nth-child(2) span {
-  color: #fff;
-}
-
-.markdown-ai-tools > button:nth-child(2):hover {
-  color: #fff;
-  background: var(--accent-strong);
 }
 
 .markdown-ai-tools button:disabled {

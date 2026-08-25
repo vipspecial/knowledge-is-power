@@ -102,8 +102,10 @@ export interface AiPanelTask {
 }
 
 export interface AiApplyPayload {
+  messageId: string;
   documentId: string;
   content: string;
+  originalContent?: string;
   target: AiContentTarget;
   range?: AiTextRange;
 }
